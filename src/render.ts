@@ -437,10 +437,17 @@ function formatInline(v: unknown): string {
 	return String(v);
 }
 
+const rowTagCache = new WeakMap<XmlElement, [string, string]>();
+
 function openRow(xml: string, rowEl: XmlElement, r: number): string {
-	let tag = setAttrs(rawStartTag(xml, rowEl), { r: String(r) });
-	if (tag.endsWith("/>")) tag = `${tag.slice(0, -2)}>`;
-	return tag;
+	let parts = rowTagCache.get(rowEl);
+	if (!parts) {
+		let tag = setAttrs(rawStartTag(xml, rowEl), { r: "\u0000" });
+		if (tag.endsWith("/>")) tag = `${tag.slice(0, -2)}>`;
+		parts = tag.split("\u0000") as [string, string];
+		rowTagCache.set(rowEl, parts);
+	}
+	return `${parts[0]}${r}${parts[1]}`;
 }
 
 function extLstOf(xml: string, cell: SheetCell): string {

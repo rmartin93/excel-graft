@@ -78,6 +78,8 @@ header.top .wrap { display: flex; align-items: center; gap: 14px; height: 60px; 
 .stat span { color: var(--ink-3); font-size: 12.5px; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 22px; padding-bottom: 60px; align-items: start; }
+.layout > *, aside, .panel { min-width: 0; }
+body { overflow-x: hidden; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 14px; }
 .toolbar label { color: var(--ink-3); font-size: 13px; }
 .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
@@ -164,6 +166,9 @@ dialog footer { padding: 12px 16px; border-top: 1px solid var(--line); display: 
 	.wrap { padding: 0 16px; }
 	.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 	.logo small { display: none; }
+	#apiPill .label { display: none; }
+	.stat b { font-size: 19px; }
+	.stat span { font-size: 11.5px; }
 	.grid { grid-template-columns: 1fr; }
 }
 </style>
@@ -176,7 +181,7 @@ dialog footer { padding: 12px 16px; border-top: 1px solid var(--line); display: 
 			excel-graft <small>test bench</small>
 		</div>
 		<div class="spacer"></div>
-		<span class="pill" id="apiPill"><span class="dot"></span> API on this machine</span>
+		<span class="pill" id="apiPill"><span class="dot"></span><span class="label">API on this machine</span></span>
 		<button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
 			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
 		</button>
@@ -304,9 +309,10 @@ function log(kind, title, detail, list) {
 $("#clearLog").onclick = () => ($("#log").innerHTML = '<div class="empty">Cleared.</div>');
 
 function describeShape(shape, depth = 0) {
-	if (shape.kind === "rows") return depth === 0 ? "rows" : "rows";
+	if (shape.kind === "rows") return depth === 0 ? "One row per record" : "detail rows";
 	const label = shape.fields.map((f) => f.name).join(", ") || "group";
-	return `groups by ${label} → ${describeShape(shape.child, depth + 1)}`;
+	const samples = shape.fields.flatMap((f) => f.samples ?? []);
+	return `Grouped by ${label}${samples.length ? ` (${samples.slice(0, 4).join(", ")}${samples.length > 4 ? ", …" : ""})` : ""} → ${describeShape(shape.child, depth + 1)}`;
 }
 function leafFields(shape) {
 	return shape.kind === "rows" ? shape.fields : leafFields(shape.child);

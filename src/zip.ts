@@ -12,11 +12,14 @@ export function readParts(input: Uint8Array): Parts {
 	return parts;
 }
 
-/** Repacks parts into an .xlsx. Parts that were never read out of `readParts` and re-set unchanged are passed through as-is. */
+/** Parts bigger than this (big rendered sheets) use fast deflate: ~4x quicker for ~15% more bytes. */
+const FAST_DEFLATE_BYTES = 1 << 20;
+
+/** Repacks parts into an .xlsx. Part bytes are written exactly as given. */
 export function writeParts(parts: Parts): Uint8Array {
 	const zippable: Zippable = {};
 	for (const [name, data] of parts) {
-		zippable[name] = data;
+		zippable[name] = data.length > FAST_DEFLATE_BYTES ? [data, { level: 1 }] : data;
 	}
 	return zipSync(zippable, { level: 6 });
 }
