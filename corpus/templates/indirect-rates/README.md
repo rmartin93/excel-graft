@@ -1,6 +1,6 @@
-# incurred-cost
+# indirect-rates
 
-A realistic DCAA-style incurred cost submission: scalar cover sheet, a
+A realistic indirect-rate workbook: scalar cover sheet, a
 direct-labor Table, a grouped indirect-pool region defined by name (not a
 Table), and a rate computation sheet that reaches into both via A1 refs and
 named formulas.

@@ -24,7 +24,7 @@ arrays and `AddCommentThreaded` all worked on this build.
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1
 
 # a subset
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1 -Only incurred-cost,date1904
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1 -Only indirect-rates,date1904
 
 # known-bad fixtures (run after Build-Corpus)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-KnownBad.ps1

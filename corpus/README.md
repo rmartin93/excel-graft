@@ -56,7 +56,7 @@ One subfolder per template, one feature (or one incident) each.
     above and a shape/note/hyperlink below the region.
   - `multi-sheet-summary/`: Table `Sales` feeding SUMIFS plus A1 cross-sheet
     refs, a PivotTable, a slicer, and a hidden lookup sheet driving a DV list.
-  - `incurred-cost/`: DCAA-style submission. Scalar named cells on a
+  - `indirect-rates/`: indirect cost pools and rates. Scalar named cells on a
     protected cover sheet, Table `DirectLabor`, grouped defined-name region
     `IndirectPools` (pool header rows with subtotals, then a grand total),
     rates via cross-sheet A1 refs and named formulas, an icon set, a chart,

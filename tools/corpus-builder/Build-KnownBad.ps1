@@ -120,8 +120,8 @@ New-Fixture "i-malformed-sheet-xml" "minimal-single-row" @{
 	"xl/worksheets/sheet1.xml" = { param($t) Edit-Once $t '</sheetData>' '' }
 }
 # (j) Shared-formula child with no master (master cell's <f> removed) --
-#     what a naive "delete the sample rows" does to incurred-cost column D.
-New-Fixture "j-orphan-shared-formula" "incurred-cost" @{
+#     what a naive "delete the sample rows" does to indirect-rates column D.
+New-Fixture "j-orphan-shared-formula" "indirect-rates" @{
 	"xl/worksheets/sheet3.xml" = { param($t) Edit-Once $t '<f t="shared" ref="D5:D17" si="0">C5/\$C\$17</f>' '' }
 }
 
