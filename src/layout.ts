@@ -1,0 +1,324 @@
+import { MAX_ROW, rowRuns } from "./a1.js";
+import type { RefReplacement, RefToken } from "./formula.js";
+import type { FieldDef, GroupPattern, Pattern, Region, Role } from "./regions.js";
+import { formatRefToken } from "./sheet.js";
+
+/** An instance of a group (or the whole region) in the output: a contiguous span of rows. */
+export interface Scope {
+	first: number;
+	last: number;
+	parent: Scope | undefined;
+	pattern: GroupPattern | undefined;
+	headerOut: number | undefined;
+	footerOut: number | undefined;
+}
+
+export interface OutRow {
+	out: number;
+	proto: number;
+	role: Role;
+	/** Values keyed by field name, or undefined for rows that only carry formulas/constants. */
+	record: Record<string, unknown> | undefined;
+	fields: FieldDef[];
+	/** The innermost group instance containing this row (for headers/footers: their own group). */
+	scope: Scope;
+	/** True for the placeholder row written when a data array is empty. */
+	blank: boolean;
+}
+
+export class RenderDataError extends Error {
+	override name = "RenderDataError";
+}
+
+export class RegionLayout {
+	readonly rows: OutRow[] = [];
+	readonly root: Scope;
+	private readonly roleAt: Int32Array;
+	private readonly roleRowsCache = new Map<number, number[]>();
+
+	constructor(
+		readonly region: Region,
+		readonly outStart: number,
+		data: unknown[],
+	) {
+		this.root = { first: outStart, last: outStart, parent: undefined, pattern: undefined, headerOut: undefined, footerOut: undefined };
+		let cursor = outStart;
+		const push = (row: Omit<OutRow, "out">): OutRow => {
+			if (cursor > MAX_ROW) {
+				throw new RenderDataError(`${region.key}: output would pass Excel's ${MAX_ROW.toLocaleString("en-US")}-row limit`);
+			}
+			const r = { ...row, out: cursor++ };
+			this.rows.push(r);
+			return r;
+		};
+		for (const role of region.leading) push({ proto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
+		const walk = (pattern: Pattern, items: unknown[], scope: Scope, path: string): void => {
+			const list = items.length === 0 ? [undefined] : items;
+			if (pattern.kind === "leaf") {
+				list.forEach((item, i) => {
+					const proto =
+						i === 0 && pattern.firstProto !== undefined
+							? pattern.firstProto
+							: (pattern.protos[(pattern.firstProto !== undefined ? i - 1 : i) % pattern.protos.length] as number);
+					push({
+						proto,
+						role: pattern.role,
+						record: asRecord(item, `${path}[${i}]`),
+						fields: pattern.fields,
+						scope,
+						blank: item === undefined,
+					});
+				});
+				return;
+			}
+			list.forEach((item, i) => {
+				const record = asRecord(item, `${path}[${i}]`);
+				const g: Scope = { first: cursor, last: cursor, parent: scope, pattern, headerOut: undefined, footerOut: undefined };
+				if (pattern.header) {
+					g.headerOut = push({ proto: pattern.header.proto, role: pattern.header.role, record, fields: pattern.header.fields, scope: g, blank: item === undefined }).out;
+				}
+				const kids = record?.[pattern.childKey];
+				if (kids !== undefined && !Array.isArray(kids)) {
+					throw new RenderDataError(`${path}[${i}].${pattern.childKey} must be an array`);
+				}
+				walk(pattern.child, (kids as unknown[] | undefined) ?? [], g, `${path}[${i}].${pattern.childKey}`);
+				if (pattern.footer) {
+					g.footerOut = push({ proto: pattern.footer.proto, role: pattern.footer.role, record, fields: pattern.footer.fields, scope: g, blank: item === undefined }).out;
+				}
+				for (const sp of pattern.spacers) push({ proto: sp.proto, role: sp.role, record: undefined, fields: [], scope: g, blank: false });
+				g.last = cursor - 1;
+			});
+		};
+		walk(region.unit, data, this.root, region.key);
+		for (const role of region.trailing) push({ proto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
+		this.root.last = cursor - 1;
+		this.roleAt = new Int32Array(this.rows.length);
+		this.rows.forEach((r, i) => (this.roleAt[i] = r.role.id));
+	}
+
+	get outEnd(): number {
+		return this.root.last;
+	}
+
+	get templateLength(): number {
+		return this.region.bodyEnd - this.region.bodyStart + 1;
+	}
+
+	get delta(): number {
+		return this.outEnd - this.outStart + 1 - this.templateLength;
+	}
+
+	inBody(templateRow: number): boolean {
+		return templateRow >= this.region.bodyStart && templateRow <= this.region.bodyEnd;
+	}
+
+	rowAt(out: number): OutRow | undefined {
+		return this.rows[out - this.outStart];
+	}
+
+	/** Output rows instantiated from the role of `templateRow`, within `scope` (sorted). */
+	project(templateRows: Iterable<number>, scope: Scope = this.root): number[] {
+		const roles = new Set<number>();
+		for (const t of templateRows) {
+			const role = this.region.roleOfRow.get(t);
+			if (role) roles.add(role.id);
+		}
+		if (scope === this.root) {
+			const out: number[] = [];
+			for (const id of roles) out.push(...this.roleRows(id));
+			return roles.size > 1 ? out.sort((a, b) => a - b) : out;
+		}
+		const out: number[] = [];
+		for (let o = scope.first; o <= scope.last; o++) {
+			if (roles.has(this.roleAt[o - this.outStart] as number)) out.push(o);
+		}
+		return out;
+	}
+
+	private roleRows(id: number): number[] {
+		let cached = this.roleRowsCache.get(id);
+		if (!cached) {
+			cached = [];
+			for (let i = 0; i < this.roleAt.length; i++) if (this.roleAt[i] === id) cached.push(this.outStart + i);
+			this.roleRowsCache.set(id, cached);
+		}
+		return cached;
+	}
+
+	/** Rows of the body in [from, to] (template), clipped. */
+	bodyRange(from: number, to: number): number[] {
+		const rows: number[] = [];
+		for (let t = Math.max(from, this.region.bodyStart); t <= Math.min(to, this.region.bodyEnd); t++) rows.push(t);
+		return rows;
+	}
+}
+
+function asRecord(item: unknown, path: string): Record<string, unknown> | undefined {
+	if (item === undefined) return undefined;
+	if (typeof item !== "object" || item === null || Array.isArray(item) || item instanceof Date) {
+		throw new RenderDataError(`${path} must be an object with one property per column`);
+	}
+	return item as Record<string, unknown>;
+}
+
+/** All rendered regions on one sheet, plus the row mapping for everything outside them. */
+export class SheetPlan {
+	constructor(
+		readonly sheetName: string,
+		readonly layouts: RegionLayout[],
+	) {}
+
+	/** Maps a template row that is not inside any rendered body. */
+	mapRow(t: number): number {
+		let d = 0;
+		for (const l of this.layouts) if (t > l.region.bodyEnd) d += l.delta;
+		return t + d;
+	}
+
+	layoutFor(t: number): RegionLayout | undefined {
+		return this.layouts.find((l) => l.inBody(t));
+	}
+}
+
+/** Where a formula (or other reference holder) lives, which decides how its references follow the data. */
+export type RefOrigin =
+	| { kind: "outside"; sheet: string | undefined }
+	| { kind: "instance"; sheet: string; layout: RegionLayout; row: OutRow }
+	/** CF/DV style formula: relative refs are anchored at a cell that moved from `from` to `to`. */
+	| { kind: "anchored"; sheet: string; from: number; to: number; layout: RegionLayout | undefined };
+
+export class WorkbookMapper {
+	constructor(readonly plans: Map<string, SheetPlan>) {}
+
+	get active(): boolean {
+		return this.plans.size > 0;
+	}
+
+	plan(sheet: string | undefined): SheetPlan | undefined {
+		return sheet === undefined ? undefined : this.plans.get(sheet);
+	}
+
+	/** Returns a replacement for `ref`, or undefined to leave it alone. */
+	map(ref: RefToken, origin: RefOrigin, inArgList: boolean): RefReplacement | string | undefined {
+		if (ref.foreign || ref.shape === "cols") return undefined;
+		const targetSheet = ref.sheet ?? origin.sheet;
+		const plan = this.plan(targetSheet);
+		const sameSheet = ref.sheet === undefined || ref.sheet === origin.sheet;
+		const originLayout = origin.kind === "instance" && sameSheet ? origin.layout : undefined;
+		if (!plan && !originLayout && origin.kind !== "anchored") return undefined;
+
+		const b = ref.b ?? ref.a;
+		const ra = Math.min(ref.a.row, b.row);
+		const rb = Math.max(ref.a.row, b.row);
+		const aIsTop = ref.a.row <= b.row;
+
+		if (origin.kind === "instance" && sameSheet && origin.row.role.kind === "leaf") {
+			// Fill-down semantics for detail rows.
+			const mapEnd = (c: RefToken["a"]) => ({ ...c, row: this.leafRow(origin, c.row, c.rowAbs, plan) });
+			return formatRefToken(ref.prefix, ref.shape, mapEnd(ref.a), ref.b ? mapEnd(ref.b) : undefined, ref.spill);
+		}
+
+		if (origin.kind === "anchored" && sameSheet) {
+			const mapEnd = (c: RefToken["a"]) => {
+				const lay = origin.layout;
+				if (!c.rowAbs && lay && lay.inBody(origin.from) && lay.inBody(c.row)) return { ...c, row: origin.to + (c.row - origin.from) };
+				return { ...c, row: this.pointRow(plan, c.row, undefined) };
+			};
+			if (!plan) return undefined;
+			return formatRefToken(ref.prefix, ref.shape, mapEnd(ref.a), ref.b ? mapEnd(ref.b) : undefined, ref.spill);
+		}
+		if (!plan) return undefined;
+
+		const scope = origin.kind === "instance" && sameSheet ? origin.row.scope : undefined;
+		if (ref.shape === "cell") {
+			const t = ref.a.row;
+			const lay = plan.layoutFor(t);
+			if (lay && inArgList && scope) {
+				const rows = lay.project([t], scope);
+				if (rows.length > 1) {
+					return { text: expandList(ref, rows), dedupeKey: `${ref.sheet ?? ""}|${lay.region.roleOfRow.get(t)?.id}|${ref.a.col}` };
+				}
+			}
+			return formatRefToken(ref.prefix, "cell", { ...ref.a, row: this.pointRow(plan, t, scope) }, undefined, ref.spill);
+		}
+		const top = this.rangeStart(plan, ra, rb, scope);
+		const bottom = this.rangeEnd(plan, ra, rb, scope);
+		const a = { ...ref.a, row: aIsTop ? top : bottom };
+		const bb = { ...b, row: aIsTop ? bottom : top };
+		return formatRefToken(ref.prefix, ref.shape, a, ref.b ? bb : undefined, ref.spill);
+	}
+
+	/** A single template row as seen from outside the data (first matching output row). */
+	pointRow(plan: SheetPlan | undefined, t: number, scope: Scope | undefined): number {
+		if (!plan) return t;
+		const lay = plan.layoutFor(t);
+		if (!lay) return plan.mapRow(t);
+		const inScope = scope && scope !== lay.root && this.scopeInLayout(scope, lay) ? lay.project([t], scope) : [];
+		const rows = inScope.length > 0 ? inScope : lay.project([t]);
+		return rows[0] ?? lay.outStart;
+	}
+
+	rangeStart(plan: SheetPlan, ra: number, rb: number, scope: Scope | undefined): number {
+		const lay = plan.layoutFor(ra);
+		if (!lay) return plan.mapRow(ra);
+		const rows = this.projectRange(lay, lay.bodyRange(ra, rb), scope);
+		return rows.length > 0 ? Math.min(...rows.slice(0, 1)) : lay.outStart;
+	}
+
+	rangeEnd(plan: SheetPlan, ra: number, rb: number, scope: Scope | undefined): number {
+		const lay = plan.layoutFor(rb);
+		if (!lay) return plan.mapRow(rb);
+		const rows = this.projectRange(lay, lay.bodyRange(ra, rb), scope);
+		return rows.length > 0 ? (rows[rows.length - 1] as number) : lay.outEnd;
+	}
+
+	private projectRange(lay: RegionLayout, templateRows: number[], scope: Scope | undefined): number[] {
+		if (scope && scope !== lay.root && this.scopeInLayout(scope, lay)) {
+			const rows = lay.project(templateRows, scope);
+			if (rows.length > 0) return rows;
+		}
+		return lay.project(templateRows);
+	}
+
+	private scopeInLayout(scope: Scope, lay: RegionLayout): boolean {
+		return scope.first >= lay.outStart && scope.last <= lay.outEnd;
+	}
+
+	/** One endpoint of a reference written in a detail row, following Excel's fill-down rules. */
+	private leafRow(origin: Extract<RefOrigin, { kind: "instance" }>, t: number, abs: boolean, plan: SheetPlan | undefined): number {
+		const { layout, row } = origin;
+		const region = layout.region;
+		if (layout.inBody(t)) {
+			const role = region.roleOfRow.get(t);
+			if (role === row.role) {
+				if (!abs) return row.out + (t - row.proto);
+				return this.firstInScope(layout, t, row.scope);
+			}
+			if (role && (role.kind === "header" || role.kind === "footer" || role.kind === "spacer")) {
+				for (let s: Scope | undefined = row.scope; s; s = s.parent) {
+					if (s.pattern?.header?.role === role && s.headerOut !== undefined) return s.headerOut;
+					if (s.pattern?.footer?.role === role && s.footerOut !== undefined) return s.footerOut;
+				}
+			}
+			return layout.project([t])[0] ?? layout.outStart;
+		}
+		if (!abs) return row.out + (t - row.proto);
+		return plan ? this.pointRow(plan, t, undefined) : t;
+	}
+
+	private firstInScope(layout: RegionLayout, t: number, scope: Scope): number {
+		const rows = layout.project([t], scope);
+		return rows[0] ?? layout.project([t])[0] ?? layout.outStart;
+	}
+}
+
+/** `C5,C9,C13` (runs collapse to ranges); wrapped as a union when it would exceed Excel's 255 arguments. */
+function expandList(ref: RefToken, rows: number[]): string {
+	const parts = rowRuns(rows).map(([s, e]) =>
+		s === e
+			? formatRefToken(ref.prefix, "cell", { ...ref.a, row: s }, undefined)
+			: formatRefToken(ref.prefix, "area", { ...ref.a, row: s }, { ...ref.a, row: e }),
+	);
+	const joined = parts.join(",");
+	return parts.length > 200 ? `(${joined})` : joined;
+}

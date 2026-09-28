@@ -34,7 +34,8 @@
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"typecheck": "tsc --noEmit",
-		"harness:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/excel-harness/Test-ExcelFiles.ps1"
+		"harness:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/excel-harness/Test-ExcelFiles.ps1",
+		"harness:rendered": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/excel-harness/Test-Rendered.ps1"
 	},
 	"keywords": [
 		"excel",
