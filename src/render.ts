@@ -253,7 +253,7 @@ function renderSheetXml(
 	const xml = model.xml;
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
 	const mapFormula = (f: string, origin: RefOrigin) =>
-		mapper.active ? rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList)) : f;
+		mapper.active ? rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion)) : f;
 
 	const scalarAt = new Map<string, ScalarTarget[]>();
 	for (const s of scalars) {
@@ -530,7 +530,7 @@ function patchWorksheetElements(
 ): void {
 	const ws = model.worksheet;
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
-	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList));
+	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion));
 	const editAttrs = (el: XmlElement, updates: Record<string, string | null>) =>
 		splicer.replace(el.start, el.openEnd, setAttrs(rawStartTag(xml, el), updates));
 	const anchoredFor = (sqref: { firstFrom: number | undefined; firstTo: number | undefined }): RefOrigin =>
@@ -733,7 +733,7 @@ function patchWorksheetExtensions(
 	warn: (m: string) => void,
 ): void {
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
-	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList));
+	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion));
 
 	// Sparklines: one per cell; body sparklines are replicated per output row from the first sample row's sparkline.
 	const sparklineGroups = findAll(extLst, "x14:sparklineGroup");
@@ -759,7 +759,7 @@ function patchWorksheetExtensions(
 				seenRoles.add(key);
 				for (const o of lay.project([cell.r1])) {
 					const row = lay.rowAt(o) as OutRow;
-					const shifted = rewriteRefs(f, (ref, c) => mapper.map(ref, { kind: "instance", sheet: sheet.name, layout: lay, row: { ...row, proto: cell.r1 } }, c.inArgList));
+					const shifted = rewriteRefs(f, (ref, c) => mapper.map(ref, { kind: "instance", sheet: sheet.name, layout: lay, row: { ...row, proto: cell.r1 } }, c.inArgList, c.inUnion));
 					out.push(sparklineXml(sp.name, fEl?.name, sqEl.name, shifted, cellName(cell.c1, o)));
 				}
 			} else {
@@ -806,7 +806,7 @@ function patchCrossSheetFormulas(xml: string, model: SheetModel, sheet: SheetInf
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
 	for (const el of findAll(model.worksheet, "formula").concat(findAll(model.worksheet, "formula1"), findAll(model.worksheet, "formula2"), findAll(model.worksheet, "xm:f"))) {
 		const text = textOf(xml, el);
-		const nf = rewriteRefs(text, (ref, c) => mapper.map(ref, outside, c.inArgList));
+		const nf = rewriteRefs(text, (ref, c) => mapper.map(ref, outside, c.inArgList, c.inUnion));
 		if (nf !== text) splicer.replace(el.openEnd, el.closeStart, escapeText(nf));
 	}
 }
@@ -906,7 +906,7 @@ function patchWorkbookParts(ctx: RenderContext, mapper: WorkbookMapper): void {
 	const { pkg, wb } = ctx;
 	const outside: RefOrigin = { kind: "outside", sheet: undefined };
 	const mapFormula = (f: string, sheet?: string) =>
-		rewriteRefs(f, (ref, c) => mapper.map(ref, sheet === undefined ? outside : { kind: "outside", sheet }, c.inArgList));
+		rewriteRefs(f, (ref, c) => mapper.map(ref, sheet === undefined ? outside : { kind: "outside", sheet }, c.inArgList, c.inUnion));
 
 	{
 		const xml = pkg.text(wb.path);

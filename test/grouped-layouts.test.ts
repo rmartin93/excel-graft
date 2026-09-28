@@ -116,6 +116,8 @@ describe("nested-groups: Region > Category > lines, a Table, CF, and a chart", (
 		expect(xml).toContain("<f>SUM(B10,B12,B15)</f>");
 		expect(xml).toContain("<f>SUM(B4,B9)</f>");
 		expect(partText(out, "xl/tables/table1.xml")).toContain('ref="A3:D17"');
+		// The chart plotted the two sample region rows as a union; it now plots every region row.
+		expect(partText(out, "xl/charts/chart1.xml")).toContain("<c:f>(Budget!$B$4,Budget!$B$9)</c:f>");
 		const cells = [
 			...sumChecks(tpl.inspect(), report, out),
 			{ sheet: "Budget", cell: "B17", value: 3470, note: "grand total budget" },

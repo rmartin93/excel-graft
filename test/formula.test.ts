@@ -55,9 +55,25 @@ describe("rewriteRefs", () => {
 			["C5", true],
 			["C8", true],
 			["C9", false],
-			["C1", false],
-			["C2", false],
+			["C1", true],
+			["C2", true],
 			["C3", true],
+		]);
+	});
+
+	it("treats a parenthesized union like an argument list (chart series use these)", () => {
+		const seen: [string, boolean, boolean][] = [];
+		const f = "(Budget!$A$4,Budget!$A$10)+(C1)+SUM((C5,C8))";
+		rewriteRefs(f, (ref, ctx) => {
+			seen.push([f.slice(ref.start, ref.end), ctx.inArgList, ctx.inUnion]);
+			return undefined;
+		});
+		expect(seen).toEqual([
+			["Budget!$A$4", true, true],
+			["Budget!$A$10", true, true],
+			["C1", false, false],
+			["C5", true, true],
+			["C8", true, true],
 		]);
 	});
 

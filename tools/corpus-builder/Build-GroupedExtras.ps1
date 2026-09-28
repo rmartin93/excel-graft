@@ -145,7 +145,7 @@ try {
 	for ($c = 2; $c -le 4; $c++) { $ws.Columns.Item($c).ColumnWidth = 12 }
 	# A chart over the grand total row's neighbours
 	$ch = $ws.Shapes.AddChart2(201, 51, 360, 30, 360, 220).Chart
-	$ch.SetSourceData($ws.Range("A4:C4,A$(4 + 5):C$(4 + 5)"))
+	$ch.SetSourceData($ws.Range("A4:C4,A10:C10"))
 	$ch.HasTitle = $true
 	$ch.ChartTitle.Text = "Regions: budget vs actual"
 	Save-Book $wb "nested-groups"

@@ -272,8 +272,14 @@ export function tokenize(s: string): Token[] {
 }
 
 export interface RefContext {
-	/** The reference is a whole argument of a function call (`SUM(A1, B2)`), so it may expand into several. */
+	/**
+	 * The reference is one item of a comma list — a function's arguments
+	 * (`SUM(A1, B2)`) or a parenthesized union (`(A1,B2)`, as chart series
+	 * use) — so it may expand into several.
+	 */
 	inArgList: boolean;
+	/** The list is a union in parentheses rather than function arguments. */
+	inUnion: boolean;
 }
 
 /**
@@ -294,8 +300,24 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 	const tokens = tokenize(formula);
 	if (!tokens.some((t) => t.kind === "ref")) return formula;
 
-	// Paren stack: true when the paren opens a function call.
+	// Grouping parens that hold a top-level comma are unions: (A1,B2).
+	const unionOpen = new Set<number>();
+	{
+		const stack: { k: number; comma: boolean }[] = [];
+		for (let k = 0; k < tokens.length; k++) {
+			const t = tokens[k] as Token;
+			const text = formula.slice(t.start, t.end);
+			if (t.kind === "op" && (text === "(" || text === "{")) stack.push({ k, comma: false });
+			else if (t.kind === "op" && (text === ")" || text === "}")) {
+				const open = stack.pop();
+				if (open?.comma && formula[tokens[open.k]!.start] === "(" && previousSignificant(tokens, open.k)?.kind !== "func") unionOpen.add(open.k);
+			} else if (t.kind === "op" && text === "," && stack.length > 0) (stack[stack.length - 1] as { comma: boolean }).comma = true;
+		}
+	}
+
+	// Paren stack: a list id when the paren opens a function call or a union.
 	const callIds: (number | undefined)[] = [];
+	const unionCalls = new Set<number>();
 	let nextCallId = 0;
 	const tokenCall: (number | undefined)[] = new Array(tokens.length);
 	const argSep: boolean[] = new Array(tokens.length).fill(false);
@@ -305,7 +327,11 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 		if (t.kind === "func") continue;
 		if (text === "(" || text === "{") {
 			const prev = previousSignificant(tokens, k);
-			callIds.push(text === "(" && prev?.kind === "func" ? nextCallId++ : undefined);
+			if (text === "(" && prev?.kind === "func") callIds.push(nextCallId++);
+			else if (unionOpen.has(k)) {
+				unionCalls.add(nextCallId);
+				callIds.push(nextCallId++);
+			} else callIds.push(undefined);
 			continue;
 		}
 		if (text === ")" || text === "}") {
@@ -335,7 +361,7 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 		const nextOk = nextIdx !== undefined && ((nextText === "," && argSep[nextIdx]) || (nextText === ")" && tokenCall[nextIdx] === call));
 		const inArgList = call !== undefined && prevOk && nextOk;
 
-		const result = map(t, { inArgList });
+		const result = map(t, { inArgList, inUnion: inArgList && call !== undefined && unionCalls.has(call) });
 		if (result === undefined) continue;
 		const rep = typeof result === "string" ? { text: result } : result;
 

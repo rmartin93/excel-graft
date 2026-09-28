@@ -248,7 +248,7 @@ export class WorkbookMapper {
 	}
 
 	/** Returns a replacement for `ref`, or undefined to leave it alone. */
-	map(ref: RefToken, origin: RefOrigin, inArgList: boolean): RefReplacement | string | undefined {
+	map(ref: RefToken, origin: RefOrigin, inArgList: boolean, inUnion = false): RefReplacement | string | undefined {
 		if (ref.foreign || ref.shape === "cols") return undefined;
 		const targetSheet = ref.sheet ?? origin.sheet;
 		const plan = this.plan(targetSheet);
@@ -288,7 +288,7 @@ export class WorkbookMapper {
 				const inScope = scope && this.scopeInLayout(scope, lay) ? lay.project([t], scope) : [];
 				const rows = inScope.length > 0 ? inScope : lay.project([t]);
 				if (rows.length > 0) {
-					return { text: expandList(ref, rows), dedupeKey: `${ref.sheet ?? ""}|${lay.region.roleOfRow.get(t)?.id}|${ref.a.col}|${ref.a.colAbs}` };
+					return { text: expandList(ref, rows, inUnion), dedupeKey: `${ref.sheet ?? ""}|${lay.region.roleOfRow.get(t)?.id}|${ref.a.col}|${ref.a.colAbs}` };
 				}
 			}
 			const scoped = lay !== undefined && scope !== undefined && scope !== lay.root && this.scopeInLayout(scope, lay);
@@ -367,14 +367,14 @@ export class WorkbookMapper {
 }
 
 /** `C5,C9,C13` (runs collapse to ranges); wrapped as a union when it would exceed Excel's 255 arguments. */
-function expandList(ref: RefToken, rows: number[]): string {
+function expandList(ref: RefToken, rows: number[], inUnion: boolean): string {
 	const parts = rowRuns(rows).map(([s, e]) =>
 		s === e
 			? formatRefToken(ref.prefix, "cell", { ...ref.a, row: s }, undefined)
 			: formatRefToken(ref.prefix, "area", { ...ref.a, row: s }, { ...ref.a, row: e }),
 	);
 	const joined = parts.join(",");
-	return parts.length > 200 ? `(${joined})` : joined;
+	return parts.length > 200 && !inUnion ? `(${joined})` : joined;
 }
 
 function display(v: unknown): string {
