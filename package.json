@@ -1,0 +1,58 @@
+{
+	"name": "excel-graft",
+	"version": "0.0.1",
+	"description": "Lossless Excel template engine: patches .xlsx XML parts in place instead of rebuilding the workbook, so unknown Excel features survive untouched.",
+	"private": true,
+	"license": "MIT",
+	"author": {
+		"name": "Ryan Martin",
+		"email": "ryan@meraki-digital.com"
+	},
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"typecheck": "tsc --noEmit",
+		"harness:excel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/excel-harness/Test-ExcelFiles.ps1"
+	},
+	"keywords": [
+		"excel",
+		"xlsx",
+		"template",
+		"ooxml",
+		"openxml"
+	],
+	"dependencies": {
+		"fflate": "^0.8.2",
+		"saxes": "^6.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.0",
+		"@vitest/coverage-v8": "^2.1.8",
+		"fast-check": "^3.23.1",
+		"tsup": "^8.3.5",
+		"typescript": "^5.7.2",
+		"vitest": "^2.1.8"
+	}
+}
