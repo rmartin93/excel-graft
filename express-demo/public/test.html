@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>excel-graft test bench</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23107C41'/%3E%3Cpath d='M9 9h14v14H9z' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='M9 16h14M16 9v14' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+:root {
+	--bg: #f5f6f4;
+	--panel: #ffffff;
+	--panel-2: #f0f2ef;
+	--ink: #1b1f1c;
+	--ink-2: #4b544e;
+	--ink-3: #7b857e;
+	--line: #dfe3de;
+	--accent: #107c41;
+	--accent-ink: #ffffff;
+	--accent-soft: #e3f2e8;
+	--warn: #9a6700;
+	--warn-soft: #fff4d6;
+	--bad: #b42318;
+	--bad-soft: #fde8e6;
+	--good: #107c41;
+	--shadow: 0 1px 2px rgb(16 24 20 / 6%), 0 6px 24px rgb(16 24 20 / 6%);
+	--radius: 14px;
+	--mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #0f1311; --panel: #171c19; --panel-2: #1e2521; --ink: #e8ece9; --ink-2: #b3bdb6; --ink-3: #7f8a83;
+		--line: #2a322d; --accent: #33b36b; --accent-ink: #06140c; --accent-soft: #163322; --warn: #f0b429; --warn-soft: #3a2e10;
+		--bad: #ff6b5b; --bad-soft: #3a1714; --good: #4cc47f; --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 30px rgb(0 0 0 / 30%);
+		color-scheme: dark;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #0f1311; --panel: #171c19; --panel-2: #1e2521; --ink: #e8ece9; --ink-2: #b3bdb6; --ink-3: #7f8a83;
+	--line: #2a322d; --accent: #33b36b; --accent-ink: #06140c; --accent-soft: #163322; --warn: #f0b429; --warn-soft: #3a2e10;
+	--bad: #ff6b5b; --bad-soft: #3a1714; --good: #4cc47f; --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 30px rgb(0 0 0 / 30%);
+	color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+	background: var(--bg);
+	color: var(--ink);
+	font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+button, input, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 20px; }
+
+header.top {
+	position: sticky; top: 0; z-index: 10;
+	background: color-mix(in srgb, var(--bg) 82%, transparent);
+	backdrop-filter: saturate(1.4) blur(10px);
+	border-bottom: 1px solid var(--line);
+}
+header.top .wrap { display: flex; align-items: center; gap: 14px; height: 60px; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; font-size: 17px; }
+.logo svg { width: 28px; height: 28px; }
+.logo small { font-weight: 500; color: var(--ink-3); font-size: 13px; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); color: var(--ink-2); font-size: 12.5px; border: 1px solid var(--line); white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.icon-btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.icon-btn:hover { color: var(--ink); }
+
+.hero { padding: 36px 0 18px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; align-items: end; }
+.hero h1 { margin: 0 0 8px; font-size: clamp(26px, 3.2vw, 38px); line-height: 1.12; letter-spacing: -0.025em; }
+.hero p { margin: 0; color: var(--ink-2); max-width: 62ch; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.stat b { display: block; font-size: 22px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--ink-3); font-size: 12.5px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 22px; padding-bottom: 60px; align-items: start; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 14px; }
+.toolbar label { color: var(--ink-3); font-size: 13px; }
+.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 7px; cursor: pointer; color: var(--ink-2); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.search { flex: 1; min-width: 180px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 7px 12px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card {
+	background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+	padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+}
+.card h3 { margin: 0; font-size: 16px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.card .file { color: var(--ink-3); font-size: 12.5px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; background: var(--panel-2); color: var(--ink-2); }
+.tag.upload { background: var(--warn-soft); color: var(--warn); }
+.regions { display: flex; flex-direction: column; gap: 6px; }
+.region { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.region .name { font-weight: 600; font-family: var(--mono); font-size: 12.5px; }
+.region .shape { color: var(--ink-2); margin-top: 2px; }
+.region .fields { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.field { font-size: 11.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font-family: var(--mono); }
+.field i { font-style: normal; color: var(--ink-3); }
+.muted { color: var(--ink-3); font-size: 13px; }
+.warnbox { font-size: 12.5px; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 6px 9px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.btn {
+	border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 10px; padding: 7px 12px; cursor: pointer;
+	display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 550; transition: transform .06s ease, background .15s;
+}
+.btn:hover { background: var(--panel-2); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn[disabled] { opacity: .6; cursor: progress; }
+.btn svg { width: 16px; height: 16px; }
+.spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.drop {
+	border: 2px dashed var(--line); border-radius: var(--radius); padding: 22px; text-align: center; color: var(--ink-2);
+	background: var(--panel); display: grid; place-items: center; gap: 6px; cursor: pointer; min-height: 170px; transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop b { color: var(--ink); }
+
+aside { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.panel h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.log { max-height: 52vh; overflow: auto; padding: 6px; }
+.entry { padding: 9px 10px; border-radius: 10px; font-size: 13px; display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
+.entry + .entry { border-top: 1px solid var(--line); border-radius: 0; }
+.entry .ico { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.ok .ico { background: var(--accent-soft); color: var(--good); }
+.fail .ico { background: var(--bad-soft); color: var(--bad); }
+.info .ico { background: var(--panel-2); color: var(--ink-2); }
+.entry .t { font-weight: 600; }
+.entry .d { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.entry ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-2); }
+.entry code { font-family: var(--mono); font-size: 12px; }
+.empty { padding: 18px; color: var(--ink-3); font-size: 13px; text-align: center; }
+pre.code { margin: 0; padding: 12px 14px; font: 12.5px/1.55 var(--mono); overflow: auto; color: var(--ink-2); max-height: 320px; }
+.k { color: #b04ad8; } .s { color: #0a7d50; } .c { color: var(--ink-3); }
+:root[data-theme="dark"] .k { color: #d59bf3; } :root[data-theme="dark"] .s { color: #6fd39a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .k { color: #d59bf3; } :root:not([data-theme="light"]) .s { color: #6fd39a; } }
+
+dialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(860px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); box-shadow: 0 30px 80px rgb(0 0 0 / 35%); }
+dialog::backdrop { background: rgb(10 14 12 / 45%); backdrop-filter: blur(2px); }
+dialog header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+dialog header h3 { margin: 0; font-size: 15px; flex: 1; }
+dialog .body { padding: 14px 16px; }
+dialog textarea { width: 100%; min-height: 340px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 10px 12px; font: 12.5px/1.5 var(--mono); resize: vertical; }
+dialog footer { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+.readme { white-space: pre-wrap; font-size: 13px; color: var(--ink-2); max-height: 60vh; overflow: auto; }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px; font-size: 13.5px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+
+@media (max-width: 980px) {
+	.hero { grid-template-columns: 1fr; }
+	.layout { grid-template-columns: 1fr; }
+	aside { position: static; }
+}
+@media (max-width: 520px) {
+	.wrap { padding: 0 16px; }
+	.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	.logo small { display: none; }
+	.grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+	<div class="wrap">
+		<div class="logo">
+			<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 9h14v14H9z" fill="none" stroke="white" stroke-width="2"/><path d="M9 16h14M16 9v14" stroke="white" stroke-width="2"/></svg>
+			excel-graft <small>test bench</small>
+		</div>
+		<div class="spacer"></div>
+		<span class="pill" id="apiPill"><span class="dot"></span> API on this machine</span>
+		<button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
+			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+		</button>
+	</div>
+</header>
+
+<main class="wrap">
+	<section class="hero">
+		<div>
+			<h1>Fill real workbooks with real data.<br>Never a repair prompt.</h1>
+			<p>Every card below is an Excel workbook used as a template. The export buttons call the Express API, which clears the sample rows and inserts fresh data in the same shape — subtotals, highlighting, charts and all — while every part of the file it didn't need to touch goes out byte-for-byte.</p>
+		</div>
+		<div class="stats">
+			<div class="stat"><b id="statTemplates">–</b><span>templates</span></div>
+			<div class="stat"><b id="statExports">0</b><span>exports this session</span></div>
+			<div class="stat"><b id="statRows">0</b><span>rows written</span></div>
+		</div>
+	</section>
+
+	<div class="layout">
+		<section>
+			<div class="toolbar">
+				<label>Rows per region</label>
+				<div class="seg" id="rowsSeg" role="group" aria-label="Rows per region">
+					<button data-rows="0">0</button>
+					<button data-rows="10" aria-pressed="true">10</button>
+					<button data-rows="250">250</button>
+					<button data-rows="5000">5k</button>
+					<button data-rows="100000">100k</button>
+				</div>
+				<input class="search" id="search" placeholder="Filter templates…" aria-label="Filter templates">
+			</div>
+			<div class="grid" id="grid">
+				<label class="drop" id="drop" tabindex="0">
+					<input type="file" id="fileInput" accept=".xlsx" hidden>
+					<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+					<div><b>Test your own workbook</b></div>
+					<div class="muted">Drop an .xlsx here (or click). It's analyzed on this machine and gets its own export buttons with generated data.</div>
+				</label>
+			</div>
+		</section>
+
+		<aside>
+			<div class="panel">
+				<h2>Activity <button class="btn" id="clearLog" style="padding:3px 9px;font-size:12px">Clear</button></h2>
+				<div class="log" id="log"><div class="empty">Exports, verifications and Excel checks show up here.</div></div>
+			</div>
+			<div class="panel">
+				<h2>The export button in your React app</h2>
+<pre class="code"><span class="c">// Express: load once, render per request</span>
+<span class="k">const</span> tpl = Template.loadSync(fs.readFileSync(<span class="s">"report.xlsx"</span>));
+app.get(<span class="s">"/api/report.xlsx"</span>, <span class="k">async</span> (req, res) =&gt; {
+  <span class="k">const</span> rows = <span class="k">await</span> db.query(<span class="s">"SELECT ..."</span>);
+  <span class="k">const</span> xlsx = <span class="k">await</span> tpl.render({ Table1: rows });
+  res.attachment(<span class="s">"report.xlsx"</span>).send(Buffer.from(xlsx));
+});
+
+<span class="c">// React</span>
+&lt;<span class="k">a</span> href=<span class="s">"/api/report.xlsx"</span> download&gt;Export&lt;/<span class="k">a</span>&gt;</pre>
+			</div>
+		</aside>
+	</div>
+</main>
+
+<dialog id="dlg">
+	<header><h3 id="dlgTitle"></h3><button class="icon-btn" data-close aria-label="Close">✕</button></header>
+	<div class="body" id="dlgBody"></div>
+	<footer id="dlgFooter"></footer>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtN = (n) => Number(n).toLocaleString();
+const fmtBytes = (b) => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`);
+const icons = {
+	download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg>',
+	shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 5 6v6c0 4 3 7.5 7 9 4-1.5 7-5 7-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
+	excel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 9 4 6m0-6-4 6M15 9h3M15 12h3M15 15h3"/></svg>',
+	code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 7-5 5 5 5m8-10 5 5-5 5"/></svg>',
+	edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+	file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/></svg>',
+	info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+};
+
+let templates = [];
+let rows = 10;
+let exports = 0;
+let rowsWritten = 0;
+
+// Theme toggle, remembered per browser.
+const stored = (() => { try { return localStorage.getItem("eg-theme"); } catch { return null; } })();
+if (stored) document.documentElement.dataset.theme = stored;
+$("#themeBtn").onclick = () => {
+	const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+	document.documentElement.dataset.theme = dark ? "light" : "dark";
+	try { localStorage.setItem("eg-theme", document.documentElement.dataset.theme); } catch {}
+};
+
+$("#rowsSeg").onclick = (e) => {
+	const b = e.target.closest("button");
+	if (!b) return;
+	rows = Number(b.dataset.rows);
+	for (const x of $("#rowsSeg").children) x.setAttribute("aria-pressed", String(x === b));
+};
+$("#search").oninput = () => renderGrid();
+
+function toast(msg) {
+	const t = $("#toast");
+	t.textContent = msg;
+	t.classList.add("show");
+	clearTimeout(t._h);
+	t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function log(kind, title, detail, list) {
+	const box = $("#log");
+	$(".empty", box)?.remove();
+	const el = document.createElement("div");
+	el.className = `entry ${kind}`;
+	el.innerHTML = `<div class="ico">${kind === "ok" ? "✓" : kind === "fail" ? "!" : "i"}</div><div><div class="t">${esc(title)}</div>${detail ? `<div class="d">${detail}</div>` : ""}${list?.length ? `<ul>${list.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div>`;
+	box.prepend(el);
+}
+$("#clearLog").onclick = () => ($("#log").innerHTML = '<div class="empty">Cleared.</div>');
+
+function describeShape(shape, depth = 0) {
+	if (shape.kind === "rows") return depth === 0 ? "rows" : "rows";
+	const label = shape.fields.map((f) => f.name).join(", ") || "group";
+	return `groups by ${label} → ${describeShape(shape.child, depth + 1)}`;
+}
+function leafFields(shape) {
+	return shape.kind === "rows" ? shape.fields : leafFields(shape.child);
+}
+
+function card(t) {
+	const el = document.createElement("article");
+	el.className = "card";
+	el.dataset.search = `${t.title} ${t.file} ${t.schema.regions.map((r) => r.key).join(" ")}`.toLowerCase();
+	const regions = t.schema.regions
+		.map((r) => `<div class="region"><div class="name">${esc(r.key)} <span class="muted">· ${esc(r.kind === "table" ? "Table" : "Named range")} on ${esc(r.sheet)}</span></div>
+			<div class="shape">${esc(describeShape(r.shape))}${r.fixedRows.length ? ` · ${r.fixedRows.length} total row${r.fixedRows.length > 1 ? "s" : ""} kept` : ""}</div>
+			<div class="fields">${leafFields(r.shape).map((f) => `<span class="field">${esc(f.name)} <i>${esc(f.type)}</i></span>`).join("")}</div></div>`)
+		.join("");
+	const scalars = t.schema.scalars.length ? `<div class="muted">Scalars: ${t.schema.scalars.map((s) => `<code>${esc(s.kind === "placeholder" ? `{{${s.key}}}` : s.key)}</code>`).join(", ")}</div>` : "";
+	const skipped = t.schema.skipped.map((s) => `<div class="warnbox">${esc(s.key)}: ${esc(s.reason)}</div>`).join("");
+	const tplIssues = t.templateIssues.length ? `<div class="warnbox">The template itself has ${t.templateIssues.length} structural issue(s) — see Verify.</div>` : "";
+	el.innerHTML = `
+		<div>
+			<h3>${esc(t.title)} ${t.source === "upload" ? '<span class="tag upload">yours</span>' : '<span class="tag">corpus</span>'}</h3>
+			<div class="file">${esc(t.file)} · ${fmtBytes(t.bytes)}</div>
+		</div>
+		<div class="regions">${regions || '<div class="muted">No tables or named ranges found — only scalars will fill.</div>'}</div>
+		${scalars}${skipped}${tplIssues}
+		<div class="actions">
+			<button class="btn primary" data-act="export">${icons.download} Export</button>
+			<button class="btn" data-act="verify" title="Render, then run the structural checks behind Excel's repair prompt">${icons.shield} Verify</button>
+			<button class="btn" data-act="excel" title="Render, then open it in real Excel and recalculate">${icons.excel} Check in Excel</button>
+			<button class="btn" data-act="custom" title="Edit the JSON sent to render()">${icons.edit} Custom data</button>
+			<button class="btn" data-act="types" title="TypeScript types generated from this template">${icons.code} Types</button>
+			<button class="btn" data-act="template" title="Download the original template">${icons.file}</button>
+			${t.readme ? `<button class="btn" data-act="readme" title="What this template tests">${icons.info}</button>` : ""}
+		</div>`;
+	el.addEventListener("click", (e) => {
+		const b = e.target.closest("button[data-act]");
+		if (b) actions[b.dataset.act](t, b);
+	});
+	return el;
+}
+
+function renderGrid() {
+	const grid = $("#grid");
+	const drop = $("#drop");
+	grid.innerHTML = "";
+	grid.append(drop);
+	const q = $("#search").value.trim().toLowerCase();
+	for (const t of templates) {
+		const c = card(t);
+		if (q && !c.dataset.search.includes(q)) continue;
+		grid.insertBefore(c, drop);
+	}
+	$("#statTemplates").textContent = templates.length;
+}
+
+async function busy(btn, fn) {
+	const html = btn.innerHTML;
+	btn.disabled = true;
+	btn.innerHTML = `<span class="spin"></span>${btn.textContent.trim() ? " Working…" : ""}`;
+	try { await fn(); } finally { btn.disabled = false; btn.innerHTML = html; }
+}
+
+async function download(res, fallbackName) {
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({ error: res.statusText }));
+		throw new Error(err.error);
+	}
+	const blob = await res.blob();
+	const cd = res.headers.get("Content-Disposition") ?? "";
+	const name = /filename="([^"]+)"/.exec(cd)?.[1] ?? fallbackName;
+	const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+	return { name, size: blob.size, ms: Number(res.headers.get("X-Render-Ms")), rows: Number(res.headers.get("X-Rows")), warnings: JSON.parse(decodeURIComponent(res.headers.get("X-Warnings") ?? "%5B%5D")) };
+}
+
+function noteExport(t, info, label) {
+	exports++;
+	rowsWritten += info.rows;
+	$("#statExports").textContent = fmtN(exports);
+	$("#statRows").textContent = fmtN(rowsWritten);
+	log("ok", `${t.title}: exported ${label}`, `${fmtN(info.rows)} rows · rendered in ${info.ms.toFixed(0)} ms · ${fmtBytes(info.size)} · <code>${esc(info.name)}</code>`, info.warnings);
+}
+
+const actions = {
+	export: (t, btn) => busy(btn, async () => {
+		try {
+			const info = await download(await fetch(`/api/export/${t.id}?rows=${rows}`), `${t.id}.xlsx`);
+			noteExport(t, info, `${fmtN(rows)} rows per region`);
+		} catch (e) { log("fail", `${t.title}: export failed`, esc(e.message)); }
+	}),
+	verify: (t, btn) => busy(btn, async () => {
+		const res = await fetch(`/api/verify/${t.id}?rows=${rows}`);
+		const r = await res.json();
+		if (!res.ok) return log("fail", `${t.title}: render failed`, esc(r.error));
+		const where = r.regions.map((x) => `${x.key} → rows ${x.firstRow}–${x.lastRow}`).join(", ");
+		if (r.issues.length === 0) log("ok", `${t.title}: structurally clean`, `${fmtBytes(r.bytes)} · render ${r.renderMs.toFixed(0)} ms · verify ${r.verifyMs.toFixed(0)} ms${where ? ` · ${esc(where)}` : ""}`, r.warnings);
+		else log("fail", `${t.title}: ${r.issues.length} structural issue(s)`, "", r.issues.map((i) => `${i.part}: ${i.message}`));
+	}),
+	excel: (t, btn) => busy(btn, async () => {
+		log("info", `${t.title}: opening in Excel…`, `${fmtN(rows)} rows per region · this takes a few seconds`);
+		const res = await fetch(`/api/excel-check/${t.id}?rows=${Math.min(rows, 200000)}`);
+		const r = await res.json();
+		if (!res.ok) return log("fail", `${t.title}: Excel check unavailable`, esc(r.error));
+		const probes = (r.result?.probes ?? []).map((p) => `${p.label} (row ${p.row}): ${p.cells.map((c) => `${c.address} ${c.text}`).join("  ")}`);
+		if (r.ok) log("ok", `${t.title}: Excel opened and recalculated it cleanly`, `no #REF!/#NAME?, table rows match · ${r.result.seconds}s in Excel`, [...(r.result.warnings ?? []), ...probes]);
+		else log("fail", `${t.title}: Excel check failed`, "", [...(r.result?.problems ?? [r.log || "no result"]), ...probes]);
+	}),
+	types: (t) => openDialog(`TypeScript types — ${t.title}`, `<pre class="code" style="max-height:60vh">${esc(t.types)}</pre>`, [
+		["Copy", () => { navigator.clipboard?.writeText(t.types); toast("Copied"); }],
+	]),
+	readme: (t) => openDialog(t.title, `<div class="readme">${esc(t.readme)}</div>`, []),
+	template: (t, btn) => busy(btn, async () => {
+		try { await download(await fetch(`/api/template/${t.id}`), t.file); } catch (e) { log("fail", e.message); }
+	}),
+	custom: async (t) => {
+		const sample = await (await fetch(`/api/sample/${t.id}?rows=3`)).json();
+		openDialog(`Custom data — ${t.title}`, `<p class="muted" style="margin-top:0">This JSON is passed to <code>render()</code>. ISO dates become Dates; <code>{"formula": "..."}</code> writes a formula.</p><textarea id="json" spellcheck="false">${esc(JSON.stringify(sample, null, 2))}</textarea>`, [
+			["Export with this data", async (btn) => busy(btn, async () => {
+				let body;
+				try { body = JSON.parse($("#json").value); } catch (e) { return toast(`Invalid JSON: ${e.message}`); }
+				try {
+					const info = await download(await fetch(`/api/export/${t.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), `${t.id}-custom.xlsx`);
+					noteExport(t, info, "custom data");
+					$("#dlg").close();
+				} catch (e) { toast(e.message); log("fail", `${t.title}: custom export failed`, esc(e.message)); }
+			}), true],
+		]);
+	},
+};
+
+function openDialog(title, bodyHtml, buttons) {
+	const dlg = $("#dlg");
+	$("#dlgTitle").textContent = title;
+	$("#dlgBody").innerHTML = bodyHtml;
+	const footer = $("#dlgFooter");
+	footer.innerHTML = "";
+	for (const [label, fn, primary] of buttons) {
+		const b = document.createElement("button");
+		b.className = `btn${primary ? " primary" : ""}`;
+		b.textContent = label;
+		b.onclick = () => fn(b);
+		footer.append(b);
+	}
+	const close = document.createElement("button");
+	close.className = "btn";
+	close.textContent = "Close";
+	close.onclick = () => dlg.close();
+	footer.append(close);
+	dlg.showModal();
+}
+$("#dlg").addEventListener("click", (e) => { if (e.target.matches("[data-close]") || e.target === $("#dlg")) $("#dlg").close(); });
+
+// Uploads.
+const drop = $("#drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); [...e.dataTransfer.files].forEach(upload); });
+$("#fileInput").addEventListener("change", (e) => [...e.target.files].forEach(upload));
+async function upload(file) {
+	if (!file.name.toLowerCase().endsWith(".xlsx")) return toast("Only .xlsx workbooks");
+	const res = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+	const r = await res.json();
+	if (!res.ok) return log("fail", `${file.name}: couldn't load`, esc(r.error));
+	templates.unshift(r);
+	renderGrid();
+	const found = r.schema.regions.map((x) => `${x.key} (${describeShape(x.shape)})`);
+	log(r.schema.regions.length ? "ok" : "info", `${file.name}: loaded`, `${r.schema.regions.length} region(s), ${r.schema.scalars.length} scalar(s) found`, [...found, ...r.schema.skipped.map((s) => `${s.key} skipped: ${s.reason}`)]);
+}
+
+(async () => {
+	try {
+		templates = await (await fetch("/api/templates")).json();
+		renderGrid();
+	} catch (e) {
+		$("#apiPill").innerHTML = '<span class="dot" style="background:var(--bad)"></span> API not reachable';
+	}
+})();
+</script>
+</body>
+</html>

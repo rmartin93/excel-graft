@@ -45,7 +45,7 @@ describe("transactions template (grouped, highlighted, with subtotals and a gran
 		expect(region).toMatchObject({ key: "Table1", kind: "table", sheet: "Transactions", sampleRange: "A5:C11", fixedRows: ["A11:C11"] });
 		expect(region.shape).toEqual({
 			kind: "groups",
-			fields: [{ name: "Merchant", type: "string" }],
+			fields: [{ name: "Merchant", type: "string", samples: ["Groceries", "Shopping"] }],
 			childKey: "rows",
 			child: {
 				kind: "rows",
@@ -111,6 +111,19 @@ describe("transactions template (grouped, highlighted, with subtotals and a gran
 			["C13", 60.5],
 		]);
 		manifest.add("transactions/grouped-small.xlsx", out, { cells, tables: [{ name: "Table1", dataRows: 9 }] });
+	});
+
+	it("a single group isn't counted twice by a grand total that listed two sample groups", async () => {
+		// Found by the Excel harness: SUM(C5,C8) over one output group became SUM(C5,C5).
+		const tpl = await Template.load<Data>(TEMPLATE);
+		const { out, report } = await renderWithReport(tpl, { Table1: [{ Merchant: "Only", rows: [{ Amount: 10 }, { Amount: 5 }] }] });
+		expect(partText(out, "xl/worksheets/sheet1.xml")).toContain('<c r="C8" s="7"><f>SUM(C5)</f></c>');
+		const cells = sumChecks(tpl.inspect(), report, out);
+		expect(cells.map((c) => [c.cell, c.value])).toEqual([
+			["C5", 15],
+			["C8", 15],
+		]);
+		manifest.add("transactions/single-group.xlsx", out, { cells, tables: [{ name: "Table1", dataRows: 4 }] });
 	});
 
 	it("an empty data array still leaves a valid table with one blank group", async () => {

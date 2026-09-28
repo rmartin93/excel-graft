@@ -1,0 +1,13 @@
+{
+	"name": "excel-graft-express-demo",
+	"private": true,
+	"type": "module",
+	"description": "Express API + test.html with export buttons for every corpus template.",
+	"scripts": {
+		"start": "node server.js --open"
+	},
+	"dependencies": {
+		"excel-graft": "file:..",
+		"express": "^4.21.2"
+	}
+}

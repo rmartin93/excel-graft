@@ -188,7 +188,51 @@ export type RefOrigin =
 	| { kind: "anchored"; sheet: string; from: number; to: number; layout: RegionLayout | undefined };
 
 export class WorkbookMapper {
-	constructor(readonly plans: Map<string, SheetPlan>) {}
+	private readonly warned = new Set<string>();
+
+	constructor(
+		readonly plans: Map<string, SheetPlan>,
+		private readonly warn: (message: string) => void = () => {},
+	) {}
+
+	private warnOnce(message: string): void {
+		if (this.warned.has(message)) return;
+		this.warned.add(message);
+		this.warn(message);
+	}
+
+	/**
+	 * A single sample cell referenced from outside its group: the output row
+	 * that plays the same part. Group rows are matched by label (a rate sheet's
+	 * reference to the "Overhead" pool row follows the Overhead pool wherever
+	 * it lands); other rows by position. No match means #REF!, never a
+	 * different row's numbers.
+	 */
+	correspondingRow(lay: RegionLayout, t: number): number {
+		const region = lay.region;
+		const role = region.roleOfRow.get(t);
+		const candidates = lay.project([t]);
+		if (!role || candidates.length === 0) return lay.outStart;
+		const label = region.sampleLabels.get(t);
+		if (label !== undefined && (role.kind === "header" || role.kind === "footer")) {
+			for (const o of candidates) {
+				const r = lay.rowAt(o);
+				if (r && outputLabel(r).toLowerCase() === label.toLowerCase()) return o;
+			}
+			this.warnOnce(`"${region.key}" has no group labeled "${label}" in the data, so references to that sample group (row ${t}) became #REF!`);
+			return 0;
+		}
+		const k = role.rows.indexOf(t);
+		const hit = candidates[k];
+		if (hit !== undefined) return hit;
+		this.warnOnce(`"${region.key}": a reference to sample row ${t} (row ${k + 1} of its kind) has no counterpart in the data, so it became #REF!`);
+		return 0;
+	}
+
+	private formulaPoint(plan: SheetPlan, t: number): number {
+		const lay = plan.layoutFor(t);
+		return lay ? this.correspondingRow(lay, t) : plan.mapRow(t);
+	}
 
 	get active(): boolean {
 		return this.plans.size > 0;
@@ -233,13 +277,18 @@ export class WorkbookMapper {
 		if (ref.shape === "cell") {
 			const t = ref.a.row;
 			const lay = plan.layoutFor(t);
-			if (lay && inArgList && scope) {
-				const rows = lay.project([t], scope);
-				if (rows.length > 1) {
-					return { text: expandList(ref, rows), dedupeKey: `${ref.sheet ?? ""}|${lay.region.roleOfRow.get(t)?.id}|${ref.a.col}` };
+			if (lay && inArgList) {
+				// A sample cell listed as an argument (SUM(C5,C8)) stands for every instance of its role.
+				// Always dedupe: two sample groups listed side by side must not count one output group twice.
+				const inScope = scope && this.scopeInLayout(scope, lay) ? lay.project([t], scope) : [];
+				const rows = inScope.length > 0 ? inScope : lay.project([t]);
+				if (rows.length > 0) {
+					return { text: expandList(ref, rows), dedupeKey: `${ref.sheet ?? ""}|${lay.region.roleOfRow.get(t)?.id}|${ref.a.col}|${ref.a.colAbs}` };
 				}
 			}
-			return formatRefToken(ref.prefix, "cell", { ...ref.a, row: this.pointRow(plan, t, scope) }, undefined, ref.spill);
+			const scoped = lay !== undefined && scope !== undefined && scope !== lay.root && this.scopeInLayout(scope, lay);
+			const row = scoped ? this.pointRow(plan, t, scope) : this.formulaPoint(plan, t);
+			return formatRefToken(ref.prefix, "cell", { ...ref.a, row }, undefined, ref.spill);
 		}
 		const top = this.rangeStart(plan, ra, rb, scope);
 		const bottom = this.rangeEnd(plan, ra, rb, scope);
@@ -303,7 +352,7 @@ export class WorkbookMapper {
 			return layout.project([t])[0] ?? layout.outStart;
 		}
 		if (!abs) return row.out + (t - row.proto);
-		return plan ? this.pointRow(plan, t, undefined) : t;
+		return plan ? this.formulaPoint(plan, t) : t;
 	}
 
 	private firstInScope(layout: RegionLayout, t: number, scope: Scope): number {
@@ -321,4 +370,15 @@ function expandList(ref: RefToken, rows: number[]): string {
 	);
 	const joined = parts.join(",");
 	return parts.length > 200 ? `(${joined})` : joined;
+}
+
+function display(v: unknown): string {
+	if (v === null || v === undefined) return "";
+	if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString();
+	return String(v).trim();
+}
+
+/** Same shape as the template side's rowLabel(): label field texts, lowercased. */
+function outputLabel(r: OutRow): string {
+	return r.fields.map((f) => display(r.record?.[f.name])).join(" / ");
 }

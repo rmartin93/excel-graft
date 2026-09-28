@@ -101,7 +101,7 @@ export function render(ctx: RenderContext, data: Record<string, unknown>, option
 		}
 		plans.set(sheet.name, new SheetPlan(sheet.name, layouts));
 	}
-	const mapper = new WorkbookMapper(plans);
+	const mapper = new WorkbookMapper(plans, warn);
 	if (options.onReport) {
 		options.onReport({
 			regions: [...plans.values()].flatMap((plan) =>

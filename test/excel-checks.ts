@@ -15,6 +15,8 @@ export interface ExcelCheck {
 	file: string;
 	cells: { sheet: string; cell: string; value: number | string; note: string }[];
 	tables: { name: string; dataRows: number }[];
+	/** The render warned that some references became #REF! on purpose (data without a sample group). */
+	allowBrokenRefs?: boolean;
 }
 
 export class ExcelManifest {

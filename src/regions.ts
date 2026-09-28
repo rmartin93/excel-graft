@@ -25,6 +25,8 @@ export interface FieldDef {
 	col: number;
 	/** Inferred from the sample cells' values and number formats. */
 	type: FieldType;
+	/** For group label fields: the sample groups' values, in order (e.g. Fringe, Overhead, G&A). */
+	samples?: string[];
 }
 
 export interface LeafPattern {
@@ -66,6 +68,8 @@ export interface Region {
 	trailing: Role[];
 	unit: Pattern;
 	roleOfRow: Map<number, Role>;
+	/** For sample group header/footer rows: their label (the text of their constant field cells). */
+	sampleLabels: Map<number, string>;
 }
 
 export interface ScalarTarget {
@@ -135,6 +139,7 @@ export function discoverRegions(
 					columnNames,
 					model,
 					styles,
+					sst,
 				}),
 			);
 		} catch (err) {
@@ -180,6 +185,7 @@ export function discoverRegions(
 					columnNames,
 					model,
 					styles,
+					sst,
 				}),
 			);
 		} catch (err) {
@@ -227,6 +233,7 @@ interface RegionInput {
 	columnNames: Map<number, string>;
 	model: SheetModel;
 	styles: StyleInfo;
+	sst: string[];
 }
 
 function buildRegion(input: RegionInput): Region {
@@ -287,7 +294,8 @@ function buildRegion(input: RegionInput): Region {
 	if (lo > hi) throw new TemplateStructureError(`${input.key}: no repeatable sample rows found`);
 
 	const seq = parseSeq(info, lo, hi, input.key);
-	const unit = toPattern([seq], input, newRole);
+	const sampleLabels = new Map<number, string>();
+	const unit = toPattern([seq], input, newRole, sampleLabels);
 	return {
 		key: input.key,
 		kind: input.kind,
@@ -305,6 +313,7 @@ function buildRegion(input: RegionInput): Region {
 		trailing,
 		unit,
 		roleOfRow,
+		sampleLabels,
 	};
 }
 
@@ -408,7 +417,12 @@ function parseSeq(info: Map<number, RowInfo>, lo: number, hi: number, key: strin
 	return { kind: "groups", blocks: nodes };
 }
 
-function toPattern(seqs: SeqNode[], input: RegionInput, newRole: (kind: Role["kind"], rows: number[]) => Role): Pattern {
+function toPattern(
+	seqs: SeqNode[],
+	input: RegionInput,
+	newRole: (kind: Role["kind"], rows: number[]) => Role,
+	labels: Map<number, string>,
+): Pattern {
 	const first = seqs[0] as SeqNode;
 	if (seqs.some((s) => s.kind !== first.kind)) {
 		throw new TemplateStructureError(`${input.key}: sample groups have different structures (some have sub-groups, some don't)`);
@@ -451,10 +465,24 @@ function toPattern(seqs: SeqNode[], input: RegionInput, newRole: (kind: Role["ki
 			proto: b0.spacers[i] as number,
 		});
 	}
+	for (const b of blocks) {
+		for (const r of [b.header, b.footer]) {
+			if (r === undefined) continue;
+			const label = rowLabel(input, r, (header ?? footer)?.fields ?? []);
+			if (label !== "") labels.set(r, label);
+		}
+	}
+	for (const part of [header, footer]) {
+		for (const f of part?.fields ?? []) {
+			const rows = blocks.map((b) => (part === header ? b.header : b.footer) as number);
+			f.samples = rows.map((r) => cellDisplay(input, r, f.col)).filter((x) => x !== "");
+		}
+	}
 	const child = toPattern(
 		blocks.map((b) => b.child),
 		input,
 		newRole,
+		labels,
 	);
 	const fieldNames = new Set([...(header?.fields ?? []), ...(footer?.fields ?? [])].map((f) => f.name));
 	return { kind: "group", header, footer, spacers, child, childKey: fieldNames.has("rows") ? "children" : "rows" };
@@ -525,6 +553,22 @@ function constantFields(input: RegionInput, protoRow: number, sampleRows: number
 		if (name !== undefined) fields.push({ name, col: c, type: sampleType(input, c, [protoRow, ...sampleRows]) });
 	}
 	return fields;
+}
+
+function cellDisplay(input: RegionInput, r: number, col: number): string {
+	const cell = input.model.rowMap.get(r)?.cells.find((x) => x.col === col);
+	if (!cell?.hasValue) return "";
+	const text = cellText(input.model, cell, input.sst);
+	if (text !== undefined) return text.trim();
+	const v = cell.el.children.find((c) => c.name === "v");
+	return v ? input.model.xml.slice(v.openEnd, v.closeStart).trim() : "";
+}
+
+/** A group row's identity: its label fields' text, e.g. "Overhead". */
+export function rowLabel(input: { model: SheetModel; sst: string[] } & Pick<RegionInput, "c1">, r: number, fields: FieldDef[]): string {
+	return fields
+		.map((f) => cellDisplay(input as RegionInput, r, f.col))
+		.join(" / ");
 }
 
 /** The type of the first non-empty sample value in this column. */

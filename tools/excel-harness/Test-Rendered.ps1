@@ -60,6 +60,7 @@ try {
 		$path = Join-Path $Dir $e.file
 		$problems = New-Object System.Collections.Generic.List[string]
 		$warnings = New-Object System.Collections.Generic.List[string]
+		$probeResults = @()
 		$started = Get-Date
 		Write-Host ("  {0,-48}" -f $e.file) -NoNewline
 		$wb = $null
@@ -87,6 +88,19 @@ try {
 				elseif ($found.ListRows.Count -ne $t.dataRows) { $problems.Add("table $($t.name) has $($found.ListRows.Count) data rows, expected $($t.dataRows)") }
 			}
 
+			foreach ($p in @($e.probes)) {
+				if ($null -eq $p) { continue }
+				$ws = $wb.Worksheets.Item($p.sheet)
+				$lastCol = [math]::Min($ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1, 40)
+				$cells = @()
+				for ($c = 1; $c -le $lastCol; $c++) {
+					$cell = $ws.Cells.Item([int]$p.row, $c)
+					$text = "$($cell.Text)".Trim()
+					if ($text -ne "") { $cells += [PSCustomObject]@{ address = $cell.Address($false, $false); text = $text } }
+				}
+				$probeResults += [PSCustomObject]@{ label = $p.label; row = $p.row; cells = $cells }
+			}
+
 			foreach ($ws in $wb.Worksheets) {
 				$errCells = $null
 				try { $errCells = $ws.UsedRange.SpecialCells(-4123, 16) } catch { $errCells = $null } # xlCellTypeFormulas, xlErrors
@@ -103,7 +117,10 @@ try {
 					else { $other++ }
 					if ($broken + $other -gt 5000) { break }
 				}
-				if ($broken -gt 0) { $problems.Add("$($ws.Name): $broken formula(s) show #REF!/#NAME? (e.g. $example)") }
+				if ($broken -gt 0) {
+					$msg = "$($ws.Name): $broken formula(s) show #REF!/#NAME? (e.g. $example)"
+					if ($e.allowBrokenRefs) { $warnings.Add("$msg - expected, the render warned about it") } else { $problems.Add($msg) }
+				}
 				if ($other -gt 0) { $warnings.Add("$($ws.Name): $other formula(s) show other errors") }
 			}
 		}
@@ -123,7 +140,7 @@ try {
 			Write-Host "FAILED" -ForegroundColor Red
 			foreach ($p in $problems) { Write-Host "      - $p" -ForegroundColor Red }
 		}
-		$results += [PSCustomObject]@{ file = $e.file; ok = ($problems.Count -eq 0); problems = @($problems); warnings = @($warnings); seconds = $secs }
+		$results += [PSCustomObject]@{ file = $e.file; ok = ($problems.Count -eq 0); problems = @($problems); warnings = @($warnings); probes = @($probeResults); seconds = $secs }
 	}
 }
 finally {
