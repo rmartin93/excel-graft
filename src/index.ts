@@ -1,4 +1,5 @@
 export { Template } from "./template.js";
+export type { LayoutSpec, LoadOptions, RegionDeclaration } from "./template.js";
 export type { FieldSchema, InspectResult, RegionSchema, RenderOptions, ScalarSchema, ShapeSchema, TemplateSchema } from "./template.js";
 export type { CellValue, FormulaValue } from "./values.js";
 export type { RegionReport, RenderReport, ReportRow } from "./render.js";

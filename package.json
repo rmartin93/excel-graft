@@ -1,6 +1,6 @@
 {
 	"name": "excel-graft",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Fill real Excel workbooks with data without breaking them: patches the .xlsx XML in place, infers groups/subtotals from sample rows, never triggers the repair prompt.",
 	"license": "MIT",
 	"author": {

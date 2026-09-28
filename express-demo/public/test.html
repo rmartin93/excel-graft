@@ -324,12 +324,12 @@ function card(t) {
 	el.dataset.search = `${t.title} ${t.file} ${t.schema.regions.map((r) => r.key).join(" ")}`.toLowerCase();
 	const regions = t.schema.regions
 		.map((r) => `<div class="region"><div class="name">${esc(r.key)} <span class="muted">· ${esc(r.kind === "table" ? "Table" : "Named range")} on ${esc(r.sheet)}</span></div>
-			<div class="shape">${esc(describeShape(r.shape))}${r.fixedRows.length ? ` · ${r.fixedRows.length} total row${r.fixedRows.length > 1 ? "s" : ""} kept` : ""}</div>
+			<div class="shape">${esc(describeShape(r.shape))}${r.fixedRows.length ? ` · ${r.fixedRows.length} fixed row${r.fixedRows.length > 1 ? "s" : ""} kept` : ""}${r.structure ? ` · <span class="muted">from ${esc(r.structure)}</span>` : ""}</div>
 			<div class="fields">${leafFields(r.shape).map((f) => `<span class="field">${esc(f.name)} <i>${esc(f.type)}</i></span>`).join("")}</div></div>`)
 		.join("");
 	const scalars = t.schema.scalars.length ? `<div class="muted">Scalars: ${t.schema.scalars.map((s) => `<code>${esc(s.kind === "placeholder" ? `{{${s.key}}}` : s.key)}</code>`).join(", ")}</div>` : "";
 	const skipped = t.schema.skipped.map((s) => `<div class="warnbox">${esc(s.key)}: ${esc(s.reason)}</div>`).join("");
-	const tplIssues = t.templateIssues.length ? `<div class="warnbox">The template itself has ${t.templateIssues.length} structural issue(s) — see Verify.</div>` : "";
+	const tplIssues = t.templateIssues.length ? `<div class="warnbox">The template itself would trigger Excel's repair prompt:<br>${t.templateIssues.map((i) => esc(`${i.part}: ${i.message}`)).join("<br>")}</div>` : "";
 	el.innerHTML = `
 		<div>
 			<h3>${esc(t.title)} ${t.source === "upload" ? '<span class="tag upload">yours</span>' : '<span class="tag">corpus</span>'}</h3>
@@ -343,6 +343,7 @@ function card(t) {
 			<button class="btn" data-act="excel" title="Render, then open it in real Excel and recalculate">${icons.excel} Check in Excel</button>
 			<button class="btn" data-act="custom" title="Edit the JSON sent to render()">${icons.edit} Custom data</button>
 			<button class="btn" data-act="types" title="TypeScript types generated from this template">${icons.code} Types</button>
+			<button class="btn" data-act="regions" title="Declare data regions in code, for workbooks without Tables or named ranges">${icons.edit} Regions</button>
 			<button class="btn" data-act="template" title="Download the original template">${icons.file}</button>
 			${t.readme ? `<button class="btn" data-act="readme" title="What this template tests">${icons.info}</button>` : ""}
 		</div>`;
@@ -426,6 +427,22 @@ const actions = {
 		["Copy", () => { navigator.clipboard?.writeText(t.types); toast("Copied"); }],
 	]),
 	readme: (t) => openDialog(t.title, `<div class="readme">${esc(t.readme)}</div>`, []),
+	regions: (t) => {
+		const current = Object.keys(t.regions ?? {}).length ? t.regions : { MyData: "'Sheet1'!A2:F50" };
+		openDialog(`Declare regions — ${t.title}`, `<p class="muted" style="margin-top:0">Same as <code>Template.load(bytes, { regions })</code>: key → sheet-qualified range of the sample rows. Nothing is written into the workbook. Add <code>{"range": "...", "layout": {"levels": [{"header": 7}, {"header": 8}], "detail": 9}}</code> to spell out row roles yourself.</p><textarea id="regionsJson" spellcheck="false">${esc(JSON.stringify(current, null, 2))}</textarea>`, [
+			["Apply", async (btn) => busy(btn, async () => {
+				let regions;
+				try { regions = JSON.parse($("#regionsJson").value); } catch (e) { return toast(`Invalid JSON: ${e.message}`); }
+				const res = await fetch(`/api/regions/${t.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ regions }) });
+				const r = await res.json();
+				if (!res.ok) return toast(r.error);
+				templates[templates.findIndex((x) => x.id === t.id)] = r;
+				renderGrid();
+				$("#dlg").close();
+				log(r.schema.skipped.length ? "fail" : "ok", `${t.title}: regions applied`, "", [...r.schema.regions.map((x) => `${x.key}: ${describeShape(x.shape)} (read from ${x.structure})`), ...r.schema.skipped.map((s) => `${s.key} skipped: ${s.reason}`)]);
+			}), true],
+		]);
+	},
 	template: (t, btn) => busy(btn, async () => {
 		try { await download(await fetch(`/api/template/${t.id}`), t.file); } catch (e) { log("fail", e.message); }
 	}),
