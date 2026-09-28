@@ -33,24 +33,31 @@ See [PROJECT.md](PROJECT.md) for why this project exists.
    row-insertion change complete: dimension, mergeCells, conditional
    formatting sqref, data validations, hyperlinks, autoFilter, table refs,
    defined names, drawing anchors, chart series ranges.
-8. **v1 constraint:** content outside a repeat region may only reference it
-   through structured (Table) references or whole-column references. Real
-   A1 reference shifting is Phase 4 — do not try to sneak in ad hoc shifting
-   logic before then; it needs its own tokenizer and its own property tests.
+8. **All A1 reference rewriting goes through `src/formula.ts` (tokenizer)
+   and `src/layout.ts` (`WorkbookMapper`).** No ad hoc regex shifting of
+   formulas anywhere else. Any change to either file needs property tests in
+   `test/formula.test.ts` and a green `npm run harness:rendered` — the
+   Excel harness is what caught the double-counted grand total.
+9. **A reference must never silently point at the wrong data.** When a
+   reference to a specific sample row has no counterpart in the rendered data
+   (e.g. a rates sheet pointing at a pool the data doesn't have), it becomes
+   `#REF!` with an `onWarning` message — never a neighbouring row.
 
 ## Working method
 
 - **Test-first, one phase at a time.** Follow the phase table in
   PROJECT.md. Do not start Phase N+1 work while Phase N's exit criteria are
   unmet.
-- **A phase is not done** until:
+- **A change is not done** until:
   - `npm test` passes,
   - the Open XML SDK validator passes on every corpus output (once
     `tools/validator` exists — see its README for current status),
-  - `npm run harness:excel` passes on every corpus output (this actually
-    opens files in Excel via COM on this Windows machine and fails on any
-    repair prompt — it is the ground truth, prefer it over your own
-    judgment about whether a file is "probably fine").
+  - `npm run harness:rendered` passes on every rendered output (it opens
+    them in Excel via COM, recalculates, and checks computed totals, table
+    row counts and broken references — it is the ground truth, prefer it
+    over your own judgment about whether a file is "probably fine"). Note
+    that some Excel builds silently accept files others repair, so
+    `verify()` must pass too.
 - **Review test changes yourself.** Agents are good at the reference-shifting
   grind but will happily loosen or delete a failing test to make it pass.
   Never let an agent "fix" a test without a human reading the diff — if

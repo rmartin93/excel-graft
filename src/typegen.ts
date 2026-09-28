@@ -17,7 +17,11 @@ function key(name: string): string {
 
 function shapeType(shape: ShapeSchema, indent: string): string {
 	const inner = `${indent}\t`;
-	const fields = shape.fields.map((f) => `${inner}${key(f.name)}?: ${FIELD_TS[f.type]};`);
+	const fields = shape.fields.map((f) => {
+		// Known sample labels become autocomplete hints without rejecting other labels.
+		const hint = f.samples?.length ? `${[...new Set(f.samples)].map((s) => JSON.stringify(s)).join(" | ")} | (string & {}) | ` : "";
+		return `${inner}${key(f.name)}?: ${hint}${FIELD_TS[f.type]};`;
+	});
 	if (shape.kind === "groups") fields.push(`${inner}${key(shape.childKey)}: ${shapeType(shape.child, inner)}[];`);
 	return `{\n${fields.join("\n")}\n${indent}}`;
 }

@@ -106,12 +106,12 @@ validating templates at startup.
 
 | Phase | Scope | Exit criteria | Status |
 |---|---|---|---|
-| 0 | Repo, CI, validator tool, Excel COM harness, first corpus templates | Harness catches the ExcelJS-corrupted file | **in progress** |
-| 1 | Zip passthrough and scalar `{{placeholders}}` with typed values | Zero repairs across the corpus; passthrough invariant holds | not started |
-| 2 | Table-based repeats, including all dependent-part updates | Tables with totals, CF, DV, charts all open clean | not started |
-| 3 | Marker-row repeats, multiple sheets, streaming output | 100k rows within budget | not started |
-| 4 | A1 formula reference shifting (tokenizer, shared formulas) | Property tests show formula refs stay correct after shifts | not started |
-| 5 | Docs, `inspect()`, 1.0 release, `test.html` demo harness against a local Express API | Tested in a real Express API for a few weeks | not started |
+| 0 | Repo, validator tool, Excel COM harness, first corpus templates | Harness catches the ExcelJS-corrupted file | **done** — `verify()` flags its autoFilter bug; the Open XML SDK validator is still unbuilt (no .NET SDK here) |
+| 1 | Zip passthrough and scalar `{{placeholders}}` / named cells with typed values | Zero repairs across the corpus; passthrough invariant holds | **done** |
+| 2 | Table-based repeats, inferred groups/subtotals/totals, all dependent-part updates | Tables with totals, CF, DV, charts all open clean | **done** — corpus outputs verified in Excel |
+| 3 | Named-range repeats (instead of marker rows), multiple sheets, streaming output | 100k rows within budget | **mostly done** — 100k rows in ~0.4s; streaming output not built (renders in memory) |
+| 4 | A1 formula reference rewriting (tokenizer, shared formulas, label-matched group refs) | Property tests show formula refs stay correct after shifts | **done** |
+| 5 | Docs, `inspect()`, CLI, npm release, `test.html` demo against a local Express API | Tested in a real Express API for a few weeks | **in progress** — 0.1.0 ready to publish; needs real-world use on the other machine |
 
 ## Prior art
 

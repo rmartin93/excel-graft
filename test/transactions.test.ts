@@ -63,7 +63,7 @@ describe("transactions template (grouped, highlighted, with subtotals and a gran
 			export interface TransactionsData {
 				/** Table "Table1" on sheet "Transactions" (sample rows A5:C11). */
 				Table1?: {
-					Merchant?: string | null | FormulaValue;
+					Merchant?: "Groceries" | "Shopping" | (string & {}) | string | null | FormulaValue;
 					rows: {
 						Merchant?: string | null | FormulaValue;
 						Date?: Date | null | FormulaValue;
