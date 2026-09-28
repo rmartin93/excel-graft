@@ -18,14 +18,14 @@
     scripts in the ANSI code page).
 
 .PARAMETER Only
-    Build only the named template(s), e.g. -Only incurred-cost,date1904
+    Build only the named template(s), e.g. -Only indirect-rates,date1904
 
 .PARAMETER OutDir
     Root folder for the templates. Defaults to <repo>/corpus/templates.
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1 -Only incurred-cost
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools/corpus-builder/Build-Corpus.ps1 -Only indirect-rates
 #>
 
 [CmdletBinding()]
@@ -665,9 +665,9 @@ None. (`Summary!A2` is a formula over `Sales[Month]`.)
 }
 
 # =============================================================================
-# 4. incurred-cost
+# 4. indirect-rates
 # =============================================================================
-function Build-IncurredCost {
+function Build-IndirectRates {
 	$wb = New-Workbook "Office 2013 - 2022 Theme"
 	$wsCov = $wb.Worksheets.Item(1)
 	$wsCov.Name = "Cover"
@@ -677,10 +677,10 @@ function Build-IncurredCost {
 
 	# ---- Cover
 	$wsCov.Range("A1:D1").Merge()
-	Set-Title $wsCov "A1" "Incurred Cost Electronic Submission" 22
+	Set-Title $wsCov "A1" "Indirect Cost Rates" 22
 	$wsCov.Rows.Item(1).RowHeight = 36
 	$wsCov.Range("A2:D2").Merge()
-	$wsCov.Range("A2").Value2 = "Prepared in accordance with FAR 52.216-7(d)(2) - Schedules H, H-1 and supporting pools"
+	$wsCov.Range("A2").Value2 = "Annual indirect cost pools, allocation bases and rates"
 	$wsCov.Range("A2").Font.Italic = $true
 	$wsCov.Range("A2").Font.Color = (RGB 89 89 89)
 	Set-Grid $wsCov 5 1 @(
@@ -830,10 +830,10 @@ function Build-IncurredCost {
 		$wsCov.Protect()
 	}
 
-	Save-Template $wb "incurred-cost" @'
-# incurred-cost
+	Save-Template $wb "indirect-rates" @'
+# indirect-rates
 
-A realistic DCAA-style incurred cost submission: scalar cover sheet, a
+A realistic indirect-rate workbook: scalar cover sheet, a
 direct-labor Table, a grouped indirect-pool region defined by name (not a
 Table), and a rate computation sheet that reaches into both via A1 refs and
 named formulas.
@@ -1452,7 +1452,7 @@ $builders = [ordered]@{
 	"flat-table-totals"  = "Build-FlatTableTotals"
 	"named-range-region" = "Build-NamedRangeRegion"
 	"multi-sheet-summary" = "Build-MultiSheetSummary"
-	"incurred-cost"      = "Build-IncurredCost"
+	"indirect-rates"     = "Build-IndirectRates"
 	"wide-and-styled"    = "Build-WideAndStyled"
 	"date1904"           = "Build-Date1904"
 	"stacked-regions"    = "Build-StackedRegions"

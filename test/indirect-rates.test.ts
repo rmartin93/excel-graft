@@ -3,8 +3,8 @@ import { type RenderReport, Template, verify } from "../src/index.js";
 import { ExcelManifest, sumChecks } from "./excel-checks.js";
 import { corpusFile, expectPassthrough, partText, renderablePart } from "./helpers.js";
 
-const TEMPLATE = corpusFile("incurred-cost", "template.xlsx");
-const manifest = new ExcelManifest("incurred-cost");
+const TEMPLATE = corpusFile("indirect-rates", "template.xlsx");
+const manifest = new ExcelManifest("indirect-rates");
 afterAll(() => manifest.save());
 
 const labor = Array.from({ length: 50 }, (_, i) => ({
@@ -17,7 +17,7 @@ const labor = Array.from({ length: 50 }, (_, i) => ({
 const laborCost = labor.reduce((s, r) => s + r.Hours * r.Rate, 0);
 const acct = (Account: number, Amount: number) => ({ Account, Description: `Account ${Account}`, Amount });
 
-describe("incurred-cost template (cross-sheet rates over grouped pools)", () => {
+describe("indirect-rates template (cross-sheet rates over grouped pools)", () => {
 	it("the template's pool groups carry their sample labels", async () => {
 		const tpl = await Template.load(TEMPLATE);
 		const pools = tpl.inspect().regions.find((r) => r.key === "IndirectPools");
@@ -74,6 +74,6 @@ describe("incurred-cost template (cross-sheet rates over grouped pools)", () => 
 			{ sheet: "Rates", cell: "D6", value: Math.round((1380 / laborCost) * 1e6) / 1e6, note: "OverheadRate" },
 			{ sheet: "Cover", cell: "B5", value: "Meraki Digital, LLC", note: "named cell" },
 		];
-		manifest.add("incurred-cost/reordered-pools.xlsx", out, { cells, tables: [{ name: "DirectLabor", dataRows: 50 }], allowBrokenRefs: true });
+		manifest.add("indirect-rates/reordered-pools.xlsx", out, { cells, tables: [{ name: "DirectLabor", dataRows: 50 }], allowBrokenRefs: true });
 	});
 });

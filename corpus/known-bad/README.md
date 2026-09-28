@@ -75,7 +75,7 @@ from a repair-mode open (or the interactive "Yes").
 | `g-overlapping-merges` | stacked-regions | added `<mergeCell ref="B23:D26"/>` overlapping `A21:C24` | yes | throws | opens | Removed Records: Merge cells from /xl/worksheets/sheet1.xml part | FAILED |
 | `h-table-ref-too-short` | flat-table-totals | table `ref="A5:F10"` with `totalsRowCount="1"` (should be `A5:F11`) | yes | throws | opens | Repaired Records: Table from /xl/tables/table1.xml part (Table) | FAILED |
 | `i-malformed-sheet-xml` | minimal-single-row | `</sheetData>` removed (not well-formed) | yes | throws | **throws** | interactive Yes: "Replaced Part: /xl/worksheets/sheet1.xml part with XML error. The name in the end tag of the element must match the element type in the start tag. Line 2, column 1394." | FAILED ("could not open even in repair mode") |
-| `j-orphan-shared-formula` | incurred-cost | removed the master `<f t="shared" ref="D5:D17" si="0">`, leaving children `<f t="shared" si="0"/>` | yes | throws | opens | Removed Records: Shared formula from /xl/worksheets/sheet3.xml part; Removed Records: Formula from /xl/calcChain.xml part | FAILED |
+| `j-orphan-shared-formula` | indirect-rates | removed the master `<f t="shared" ref="D5:D17" si="0">`, leaving children `<f t="shared" si="0"/>` | yes | throws | opens | Removed Records: Shared formula from /xl/worksheets/sheet3.xml part; Removed Records: Formula from /xl/calcChain.xml part | FAILED |
 | `templates/exceljs-fork-broken/Test-Output.xlsx` (not in this folder) | n/a | real ExcelJS output | **no** (on this build; it prompted on another machine) | opens | opens | (nothing) | OK (**not flagged**) |
 
 ## What this means for the engine
@@ -89,4 +89,4 @@ from a repair-mode open (or the interactive "Yes").
   sqref the engine grows must be clamped to row 1,048,576.
 - A shared-formula master left behind in a deleted sample row (j) is a
   real repair trigger. The engine must expand or re-master shared formulas
-  when it removes sample rows (see `templates/incurred-cost`).
+  when it removes sample rows (see `templates/indirect-rates`).

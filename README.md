@@ -146,12 +146,12 @@ Generate a type from the template so a renamed column or a new grouping
 level is a compile error, not a blank column in production:
 
 ```
-npx excel-graft types reports/incurred-cost.xlsx --name IncurredCostData --out src/incurred-cost.xlsx.ts
+npx excel-graft types reports/indirect-rates.xlsx --name IndirectRatesData --out src/indirect-rates.xlsx.ts
 ```
 
 ```ts
-import type { IncurredCostData } from "./incurred-cost.xlsx";
-const tpl = Template.loadSync<IncurredCostData>(bytes);
+import type { IndirectRatesData } from "./indirect-rates.xlsx";
+const tpl = Template.loadSync<IndirectRatesData>(bytes);
 await tpl.render({ IndirectPools: [{ Account: "Fringe", rows: [...] }] }); // checked
 ```
 
@@ -198,7 +198,7 @@ The claim is "no repair prompts", so the test suite is built to catch them:
    tables with totals, grouped regions, named ranges with merged titles,
    charts, images, pivot tables, slicers, sparklines, x14 conditional
    formatting, data validation, dynamic arrays, threaded comments, protected
-   sheets, the 1904 date system, and a DCAA-style incurred cost submission.
+   sheets, the 1904 date system, and a multi-sheet indirect-rate workbook.
    Every one is rendered with 0, 1, 7 and 300 rows and with hostile values
    (emoji, control characters, 40,000-character strings, `NaN`, bigints,
    1900 leap-bug dates, strings that look like formulas).
