@@ -65,5 +65,13 @@
 	"bin": {
 		"excel-graft": "./dist/cli.js"
 	},
-	"sideEffects": false
+	"sideEffects": false,
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rmartin93/excel-graft.git"
+	},
+	"bugs": {
+		"url": "https://github.com/rmartin93/excel-graft/issues"
+	},
+	"homepage": "https://github.com/rmartin93/excel-graft#readme"
 }

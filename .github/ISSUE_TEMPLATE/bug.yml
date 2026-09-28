@@ -1,0 +1,37 @@
+name: Repair prompt or wrong output
+description: Excel offered to repair a file, a number came out wrong, or render() threw
+labels: [bug]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened?
+      options:
+        - Excel showed "We found a problem with some content" (repair prompt)
+        - A value or formula came out wrong
+        - render() or load() threw an error
+        - Something in the workbook was lost (formatting, chart, comment, ...)
+    validations:
+      required: true
+  - type: textarea
+    id: verify
+    attributes:
+      label: Output of `npx excel-graft verify output.xlsx`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: inspect
+    attributes:
+      label: Output of `npx excel-graft inspect template.xlsx`
+      render: json
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: The data you passed (shape is enough), what you expected, and what you saw. Attach the template with sample data scrubbed if you can, and Excel's repair log if it offered one.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: excel-graft 0.1.0, Excel build (File > Account > About Excel), Node 22
