@@ -1,5 +1,6 @@
 import { MAX_ROW, rowRuns } from "./a1.js";
-import type { RefReplacement, RefToken } from "./formula.js";
+import type { RefContext, RefReplacement, RefToken } from "./formula.js";
+import { dateToSerial } from "./values.js";
 import type { FieldDef, GroupPattern, Pattern, Region, Role } from "./regions.js";
 import { formatRefToken } from "./sheet.js";
 
@@ -175,9 +176,11 @@ export class SheetPlan {
 
 	/** Maps a template row that is not inside any rendered body. */
 	mapRow(t: number): number {
+		// A range that runs to the bottom of the sheet keeps running to the bottom (Excel does the same on insert).
+		if (t >= MAX_ROW) return MAX_ROW;
 		let d = 0;
 		for (const l of this.layouts) if (t > l.region.bodyEnd) d += l.delta;
-		return t + d;
+		return Math.min(t + d, MAX_ROW);
 	}
 
 	layoutFor(t: number): RegionLayout | undefined {
@@ -198,6 +201,7 @@ export class WorkbookMapper {
 	constructor(
 		readonly plans: Map<string, SheetPlan>,
 		private readonly warn: (message: string) => void = () => {},
+		private readonly options: { date1904?: boolean; sheetOrder?: string[] } = {},
 	) {}
 
 	private warnOnce(message: string): void {
@@ -222,7 +226,7 @@ export class WorkbookMapper {
 		if (label !== undefined && (role.kind === "header" || role.kind === "footer")) {
 			for (const o of candidates) {
 				const r = lay.rowAt(o);
-				if (r && outputLabel(r).toLowerCase() === label.toLowerCase()) return o;
+				if (r && this.labelPath(lay, r).toLowerCase() === label.toLowerCase()) return o;
 			}
 			this.warnOnce(`"${region.key}" has no group labeled "${label}" in the data, so references to that sample group (row ${t}) became #REF!`);
 			return 0;
@@ -247,9 +251,60 @@ export class WorkbookMapper {
 		return sheet === undefined ? undefined : this.plans.get(sheet);
 	}
 
+	/** "Sales › Travel": a group row's label plus its parents', matching Region.sampleLabels. */
+	private labelPath(lay: RegionLayout, r: OutRow): string {
+		const parts: string[] = [];
+		for (let s: Scope | undefined = r.scope; s?.pattern; s = s.parent) {
+			const at = s.headerOut ?? s.footerOut;
+			const row = at === undefined ? undefined : lay.rowAt(at);
+			parts.unshift(row ? outputLabel(row, this.options.date1904 ?? false) : "");
+		}
+		return parts.join(" › ");
+	}
+
+	/**
+	 * A range that lies inside one sample group (MAX(C4:C5) over Fringe's
+	 * accounts) means that group: find the output group that corresponds to
+	 * it. Returns null when the data has no such group (the range becomes #REF!).
+	 */
+	private sampleGroupScope(lay: RegionLayout, ra: number, rb: number): Scope | null | undefined {
+		let best: { row: number; first: number; last: number } | undefined;
+		for (const b of lay.region.sampleBlocks) {
+			if (b.first <= ra && rb <= b.last && (!best || b.last - b.first < best.last - best.first)) best = b;
+		}
+		if (!best) return undefined;
+		const o = this.correspondingRow(lay, best.row);
+		if (o === 0) return null;
+		return lay.rowAt(o)?.scope;
+	}
+
+	/** 3-D references (Jan:Feb!B7) can't follow per-sheet row moves; say so instead of leaving them silently stale. */
+	private check3d(ref: RefToken): void {
+		if (!ref.sheet || !ref.sheet.includes(":") || ref.sheet.startsWith("[")) return;
+		const [first, last] = ref.sheet.split(":") as [string, string];
+		const order = this.options.sheetOrder ?? [];
+		const i = order.indexOf(first);
+		const j = order.indexOf(last);
+		const span = i >= 0 && j >= 0 ? order.slice(Math.min(i, j), Math.max(i, j) + 1) : [first, last];
+		const b = ref.b ?? ref.a;
+		const moved = span.some((name) => {
+			const p = this.plans.get(name);
+			return p !== undefined && (p.layoutFor(ref.a.row) !== undefined || p.layoutFor(b.row) !== undefined || p.mapRow(ref.a.row) !== ref.a.row || p.mapRow(b.row) !== b.row);
+		});
+		if (moved) {
+			const text = formatRefToken(ref.prefix, ref.shape, ref.a, ref.b, ref.spill);
+			this.warnOnce(`the 3-D reference ${text} spans sheets whose rows moved, so it was left unchanged and may be wrong; reference each sheet (or a Table) instead`);
+		}
+	}
+
 	/** Returns a replacement for `ref`, or undefined to leave it alone. */
-	map(ref: RefToken, origin: RefOrigin, inArgList: boolean, inUnion = false): RefReplacement | string | undefined {
-		if (ref.foreign || ref.shape === "cols") return undefined;
+	map(ref: RefToken, origin: RefOrigin, ctx: Pick<RefContext, "inArgList" | "inUnion" | "func"> & Partial<Pick<RefContext, "siblings">>): RefReplacement | string | undefined {
+		const { inArgList, inUnion } = ctx;
+		if (ref.shape === "cols") return undefined;
+		if (ref.foreign) {
+			this.check3d(ref);
+			return undefined;
+		}
 		const targetSheet = ref.sheet ?? origin.sheet;
 		const plan = this.plan(targetSheet);
 		const sameSheet = ref.sheet === undefined || ref.sheet === origin.sheet;
@@ -261,13 +316,16 @@ export class WorkbookMapper {
 		const rb = Math.max(ref.a.row, b.row);
 		const aIsTop = ref.a.row <= b.row;
 
-		if (origin.kind === "instance" && sameSheet && origin.row.role.kind === "leaf") {
+		// A fully absolute range ($B$3:$B$5) names a block of rows, not a fill-down offset: it grows with the data.
+		const absRange = ref.b !== undefined && (ref.shape === "area" || ref.shape === "rows") && ref.a.rowAbs && ref.b.rowAbs;
+
+		if (origin.kind === "instance" && sameSheet && origin.row.role.kind === "leaf" && !absRange) {
 			// Fill-down semantics for detail rows.
 			const mapEnd = (c: RefToken["a"]) => ({ ...c, row: this.leafRow(origin, c.row, c.rowAbs, plan) });
 			return formatRefToken(ref.prefix, ref.shape, mapEnd(ref.a), ref.b ? mapEnd(ref.b) : undefined, ref.spill);
 		}
 
-		if (origin.kind === "anchored" && sameSheet) {
+		if (origin.kind === "anchored" && sameSheet && !absRange) {
 			const mapEnd = (c: RefToken["a"]) => {
 				const lay = origin.layout;
 				if (!c.rowAbs && lay && lay.inBody(origin.from) && lay.inBody(c.row)) return { ...c, row: origin.to + (c.row - origin.from) };
@@ -282,8 +340,14 @@ export class WorkbookMapper {
 		if (ref.shape === "cell") {
 			const t = ref.a.row;
 			const lay = plan.layoutFor(t);
-			if (lay && inArgList) {
-				// A sample cell listed as an argument (SUM(C5,C8)) stands for every instance of its role.
+			// A sample cell listed in an aggregate stands for every row of its kind when the list says so:
+			// a group/total row totalling its children, or two or more sample rows of one kind (SUM(C3,C6)).
+			// MAX(C6,0) from outside names one specific group.
+			const role = lay?.region.roleOfRow.get(t);
+			const listsKind =
+				(origin.kind === "instance" && sameSheet && origin.row.role.kind !== "leaf") ||
+				(ctx.siblings ?? [ref]).filter((s) => s.shape === "cell" && (s.sheet ?? origin.sheet) === targetSheet && lay?.region.roleOfRow.get(s.a.row) === role).length >= 2;
+			if (lay && inArgList && (inUnion || AGGREGATES.has(ctx.func ?? "")) && listsKind) {
 				// Always dedupe: two sample groups listed side by side must not count one output group twice.
 				const inScope = scope && this.scopeInLayout(scope, lay) ? lay.project([t], scope) : [];
 				const rows = inScope.length > 0 ? inScope : lay.project([t]);
@@ -295,8 +359,15 @@ export class WorkbookMapper {
 			const row = scoped ? this.pointRow(plan, t, scope) : this.formulaPoint(plan, t);
 			return formatRefToken(ref.prefix, "cell", { ...ref.a, row }, undefined, ref.spill);
 		}
-		const top = this.rangeStart(plan, ra, rb, scope);
-		const bottom = this.rangeEnd(plan, ra, rb, scope);
+		let rangeScope = scope;
+		const lay = plan.layoutFor(ra);
+		if (lay && lay === plan.layoutFor(rb) && !(scope && scope !== lay.root && this.scopeInLayout(scope, lay))) {
+			const g = this.sampleGroupScope(lay, ra, rb);
+			if (g === null) return `${ref.prefix}#REF!`;
+			if (g) rangeScope = g;
+		}
+		const top = this.rangeStart(plan, ra, rb, rangeScope);
+		const bottom = this.rangeEnd(plan, ra, rb, rangeScope);
 		const a = { ...ref.a, row: aIsTop ? top : bottom };
 		const bb = { ...b, row: aIsTop ? bottom : top };
 		return formatRefToken(ref.prefix, ref.shape, a, ref.b ? bb : undefined, ref.spill);
@@ -377,13 +448,26 @@ function expandList(ref: RefToken, rows: number[], inUnion: boolean): string {
 	return parts.length > 200 && !inUnion ? `(${joined})` : joined;
 }
 
-function display(v: unknown): string {
+/**
+ * Functions whose arguments are all "more of the same", so a sample cell
+ * listed as an argument means every row of its kind. Anywhere else
+ * (ROUND(C6,2), IF(...)) a sample cell means one specific row.
+ */
+const AGGREGATES = new Set([
+	"SUM", "SUMSQ", "PRODUCT", "AVERAGE", "AVERAGEA", "COUNT", "COUNTA", "MAX", "MAXA", "MIN", "MINA", "MEDIAN",
+	"MODE", "MODE.SNGL", "MODE.MULT", "STDEV", "STDEV.S", "STDEV.P", "STDEVA", "STDEVP", "STDEVPA", "VAR", "VAR.S",
+	"VAR.P", "VARA", "VARP", "VARPA", "GEOMEAN", "HARMEAN", "AVEDEV", "DEVSQ", "SUBTOTAL", "AGGREGATE", "CONCAT",
+	"CONCATENATE", "TEXTJOIN", "VSTACK", "HSTACK", "CHOOSE",
+]);
+
+function display(v: unknown, date1904: boolean): string {
 	if (v === null || v === undefined) return "";
-	if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString();
+	// Template-side labels of date cells are their serial numbers.
+	if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : String(dateToSerial(v, date1904));
 	return String(v).trim();
 }
 
-/** Same shape as the template side's rowLabel(): label field texts, lowercased. */
-function outputLabel(r: OutRow): string {
-	return r.fields.map((f) => display(r.record?.[f.name])).join(" / ");
+/** Same shape as the template side's rowLabel(): the label field texts. */
+function outputLabel(r: OutRow, date1904: boolean): string {
+	return r.fields.map((f) => display(r.record?.[f.name], date1904)).join(" / ");
 }

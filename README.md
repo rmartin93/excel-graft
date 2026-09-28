@@ -210,6 +210,11 @@ a drop zone to **test your own workbook** with generated data.
   formula limit; that throws. Total with `SUBTOTAL` over one range instead.
 - `{{placeholders}}` in text boxes, headers/footers and sheet names aren't
   filled.
+- 3-D references (`=SUM(Jan:Feb!B7)`) across filled sheets can't follow
+  each sheet's rows; they're left as-is with an `onWarning` message.
+- A sample cell inside a non-aggregating function (`=ROUND(Pools!C9,2)`)
+  means that one group; inside `SUM`/`AVERAGE`/`COUNT`/… listed together with
+  its sibling sample groups (`=SUM(C5,C9,C13)`) it means all of them.
 - Dynamic-array formulas whose spill runs into other content will show
   `#SPILL!` when the data grows — the same thing Excel would do.
 

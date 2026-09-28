@@ -101,7 +101,7 @@ export function render(ctx: RenderContext, data: Record<string, unknown>, option
 		}
 		plans.set(sheet.name, new SheetPlan(sheet.name, layouts));
 	}
-	const mapper = new WorkbookMapper(plans, warn);
+	const mapper = new WorkbookMapper(plans, warn, { date1904: ctx.wb.date1904, sheetOrder: ctx.wb.sheets.map((s) => s.name) });
 	if (options.onReport) {
 		options.onReport({
 			regions: [...plans.values()].flatMap((plan) =>
@@ -253,7 +253,7 @@ function renderSheetXml(
 	const xml = model.xml;
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
 	const mapFormula = (f: string, origin: RefOrigin) =>
-		mapper.active ? rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion)) : f;
+		mapper.active ? rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c)) : f;
 
 	const scalarAt = new Map<string, ScalarTarget[]>();
 	for (const s of scalars) {
@@ -515,7 +515,8 @@ function mapSqref(plan: SheetPlan, text: string): { text: string; firstFrom: num
 		}
 		out.push(...mapped);
 	}
-	return { text: formatAreaList(out), firstFrom, firstTo };
+	const unique = [...new Map(out.map((a) => [formatAreaList([a]), a])).values()];
+	return { text: formatAreaList(unique), firstFrom, firstTo };
 }
 
 /** Everything in the worksheet part outside sheetData that holds row references. */
@@ -530,7 +531,7 @@ function patchWorksheetElements(
 ): void {
 	const ws = model.worksheet;
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
-	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion));
+	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c));
 	const editAttrs = (el: XmlElement, updates: Record<string, string | null>) =>
 		splicer.replace(el.start, el.openEnd, setAttrs(rawStartTag(xml, el), updates));
 	const anchoredFor = (sqref: { firstFrom: number | undefined; firstTo: number | undefined }): RefOrigin =>
@@ -566,14 +567,21 @@ function patchWorksheetElements(
 			}
 		} else if (name === "mergeCells") {
 			const kept: string[] = [];
+			const seen = new Set<string>();
+			const keep = (ref: string) => {
+				if (!seen.has(ref)) {
+					seen.add(ref);
+					kept.push(ref);
+				}
+			};
 			for (const mc of el.children) {
 				const a = parseArea(mc.attrs.ref ?? "");
 				if (!a) continue;
 				const lay = plan.layouts.find((l) => a.r1 <= l.region.bodyEnd && a.r2 >= l.region.bodyStart);
 				if (!lay) {
-					kept.push(formatAreaList(mapSqrefArea(plan, a)));
+					keep(formatAreaList(mapSqrefArea(plan, a)));
 				} else if (a.r1 === a.r2) {
-					for (const r of lay.project([a.r1])) kept.push(formatAreaList([{ ...a, r1: r, r2: r }]).replace(/^([A-Z]+\d+)$/, "$1:$1"));
+					for (const r of lay.project([a.r1])) keep(formatAreaList([{ ...a, r1: r, r2: r }]).replace(/^([A-Z]+\d+)$/, "$1:$1"));
 				} else {
 					warn(`merged cells ${mc.attrs.ref} span several sample rows of "${lay.region.key}" and were removed`);
 				}
@@ -623,7 +631,8 @@ function patchWorksheetElements(
 					continue;
 				}
 				keptCount++;
-				editAttrs(h, { ref: formatAreaList(mapSqrefArea(plan, a)) });
+				const loc = h.attrs.location;
+				editAttrs(h, { ref: formatAreaList(mapSqrefArea(plan, a)), ...(loc ? { location: mapFormula(loc, outside) } : {}) });
 			}
 			if (keptCount === 0) splicer.replaceElement(el, "");
 		} else if (name === "autoFilter") {
@@ -733,7 +742,7 @@ function patchWorksheetExtensions(
 	warn: (m: string) => void,
 ): void {
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
-	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c.inArgList, c.inUnion));
+	const mapFormula = (f: string, origin: RefOrigin) => rewriteRefs(f, (ref, c) => mapper.map(ref, origin, c));
 
 	// Sparklines: one per cell; body sparklines are replicated per output row from the first sample row's sparkline.
 	const sparklineGroups = findAll(extLst, "x14:sparklineGroup");
@@ -759,7 +768,7 @@ function patchWorksheetExtensions(
 				seenRoles.add(key);
 				for (const o of lay.project([cell.r1])) {
 					const row = lay.rowAt(o) as OutRow;
-					const shifted = rewriteRefs(f, (ref, c) => mapper.map(ref, { kind: "instance", sheet: sheet.name, layout: lay, row: { ...row, proto: cell.r1 } }, c.inArgList, c.inUnion));
+					const shifted = rewriteRefs(f, (ref, c) => mapper.map(ref, { kind: "instance", sheet: sheet.name, layout: lay, row: { ...row, proto: cell.r1 } }, c));
 					out.push(sparklineXml(sp.name, fEl?.name, sqEl.name, shifted, cellName(cell.c1, o)));
 				}
 			} else {
@@ -804,9 +813,15 @@ function sparklineXml(name: string, fName: string | undefined, sqName: string, f
 function patchCrossSheetFormulas(xml: string, model: SheetModel, sheet: SheetInfo, mapper: WorkbookMapper, splicer: Splicer): void {
 	if (!mapper.active) return;
 	const outside: RefOrigin = { kind: "outside", sheet: sheet.name };
+	for (const h of findAll(model.worksheet, "hyperlink")) {
+		const loc = h.attrs.location;
+		if (!loc) continue;
+		const nl = rewriteRefs(loc, (ref, c) => mapper.map(ref, outside, c));
+		if (nl !== loc) splicer.replace(h.start, h.openEnd, setAttrs(rawStartTag(xml, h), { location: nl }));
+	}
 	for (const el of findAll(model.worksheet, "formula").concat(findAll(model.worksheet, "formula1"), findAll(model.worksheet, "formula2"), findAll(model.worksheet, "xm:f"))) {
 		const text = textOf(xml, el);
-		const nf = rewriteRefs(text, (ref, c) => mapper.map(ref, outside, c.inArgList, c.inUnion));
+		const nf = rewriteRefs(text, (ref, c) => mapper.map(ref, outside, c));
 		if (nf !== text) splicer.replace(el.openEnd, el.closeStart, escapeText(nf));
 	}
 }
@@ -828,6 +843,12 @@ function patchSheetParts(ctx: RenderContext, sheet: SheetInfo, plan: SheetPlan, 
 				splicer.replace(table.start, table.openEnd, setAttrs(rawStartTag(xml, table), { ref: formatAreaList([m]).replace(/^([A-Z]+\d+)$/, "$1:$1") }));
 			}
 			for (const af of table.children.filter((c) => localName(c.name) === "autoFilter")) patchAreaAttrs(xml, af, plan, mapper, splicer);
+			// Custom totals-row formulas are stored in the table part too; keep them in step with the cells.
+			for (const tf of findAll(table, "totalsRowFormula").concat(findAll(table, "calculatedColumnFormula"))) {
+				const text = textOf(xml, tf);
+				const nf = rewriteRefs(text, (ref, c) => mapper.map(ref, { kind: "outside", sheet: sheet.name }, c));
+				if (nf !== text) splicer.replace(tf.openEnd, tf.closeStart, escapeText(nf));
+			}
 			const out = splicer.apply();
 			if (out !== xml) pkg.setText(rel.target, out);
 		} else if (rel.type === REL.drawing) {
@@ -843,6 +864,24 @@ function patchSheetParts(ctx: RenderContext, sheet: SheetInfo, plan: SheetPlan, 
 			}
 			const out = splicer.apply();
 			if (out !== xml) pkg.setText(rel.target, out);
+		} else if (rel.type === REL.pivotTable) {
+			// A pivot table placed on a filled sheet moves with the rows around it.
+			const xml = pkg.text(rel.target);
+			const root = parseXml(xml);
+			const loc = findAll(root, "location")[0];
+			const a = loc ? parseArea(loc.attrs.ref ?? "") : undefined;
+			if (loc && a) {
+				if (plan.layoutFor(a.r1) || plan.layoutFor(a.r2)) {
+					warn(`the pivot table at ${loc.attrs.ref} overlaps sample rows and was left in place`);
+				} else {
+					const m = mapArea(mapper, plan, sheet.name, a);
+					if (m.r1 !== a.r1 || m.r2 !== a.r2) {
+						const splicer = new Splicer(xml);
+						splicer.replace(loc.start, loc.openEnd, setAttrs(rawStartTag(xml, loc), { ref: formatAreaList([m]) }));
+						pkg.setText(rel.target, splicer.apply());
+					}
+				}
+			}
 		} else if (rel.type === REL.comments) {
 			patchComments(ctx, rel.target, plan, mapper, warn, "comment");
 		} else if (rel.type === REL.threadedComment) {
@@ -906,7 +945,7 @@ function patchWorkbookParts(ctx: RenderContext, mapper: WorkbookMapper): void {
 	const { pkg, wb } = ctx;
 	const outside: RefOrigin = { kind: "outside", sheet: undefined };
 	const mapFormula = (f: string, sheet?: string) =>
-		rewriteRefs(f, (ref, c) => mapper.map(ref, sheet === undefined ? outside : { kind: "outside", sheet }, c.inArgList, c.inUnion));
+		rewriteRefs(f, (ref, c) => mapper.map(ref, sheet === undefined ? outside : { kind: "outside", sheet }, c));
 
 	{
 		const xml = pkg.text(wb.path);

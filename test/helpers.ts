@@ -67,6 +67,7 @@ export function renderablePart(name: string): boolean {
 		/^xl\/threadedComments\/threadedComment\d+\.xml$/.test(name) ||
 		/^xl\/charts\/chart(Ex)?\d+\.xml$/.test(name) ||
 		/^xl\/pivotCache\/pivotCacheDefinition\d+\.xml$/.test(name) ||
+		/^xl\/pivotTables\/pivotTable\d+\.xml$/.test(name) ||
 		name === "xl/workbook.xml" ||
 		name === "xl/_rels/workbook.xml.rels" ||
 		name === "[Content_Types].xml"

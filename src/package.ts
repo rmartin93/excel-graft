@@ -14,6 +14,7 @@ export const REL = {
 	vmlDrawing: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing",
 	threadedComment: "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment",
 	pivotCacheDefinition: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition",
+	pivotTable: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable",
 	officeDocument: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
 } as const;
 

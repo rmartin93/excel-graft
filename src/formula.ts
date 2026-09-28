@@ -1,4 +1,4 @@
-import { type CellRef, parseCell } from "./a1.js";
+import { type CellRef, colToIndex, parseCell } from "./a1.js";
 
 /**
  * A small Excel formula tokenizer, just precise enough to find every A1
@@ -111,8 +111,8 @@ function readRefBody(s: string, at: number): RefBody | undefined {
 		return {
 			end: at + cols[0].length,
 			shape: "cols",
-			a: { col: 1, row: 0, colAbs: cols[1] === "$", rowAbs: false },
-			b: { col: 1, row: 0, colAbs: cols[3] === "$", rowAbs: false },
+			a: { col: colToIndex(cols[2] as string), row: 0, colAbs: cols[1] === "$", rowAbs: false },
+			b: { col: colToIndex(cols[4] as string), row: 0, colAbs: cols[3] === "$", rowAbs: false },
 			spill: "",
 		};
 	}
@@ -280,6 +280,10 @@ export interface RefContext {
 	inArgList: boolean;
 	/** The list is a union in parentheses rather than function arguments. */
 	inUnion: boolean;
+	/** Upper-case name of the function whose argument this is (`_xlfn.` removed), if any. */
+	func: string | undefined;
+	/** Every reference that is a whole item of the same list (including this one). */
+	siblings: RefToken[];
 }
 
 /**
@@ -318,6 +322,7 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 	// Paren stack: a list id when the paren opens a function call or a union.
 	const callIds: (number | undefined)[] = [];
 	const unionCalls = new Set<number>();
+	const callFunc = new Map<number, string>();
 	let nextCallId = 0;
 	const tokenCall: (number | undefined)[] = new Array(tokens.length);
 	const argSep: boolean[] = new Array(tokens.length).fill(false);
@@ -327,7 +332,10 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 		if (t.kind === "func") continue;
 		if (text === "(" || text === "{") {
 			const prev = previousSignificant(tokens, k);
-			if (text === "(" && prev?.kind === "func") callIds.push(nextCallId++);
+			if (text === "(" && prev?.kind === "func") {
+				callFunc.set(nextCallId, formula.slice(prev.start, prev.end).toUpperCase().replace(/^(_XLFN\.|_XLWS\.)+/, ""));
+				callIds.push(nextCallId++);
+			}
 			else if (unionOpen.has(k)) {
 				unionCalls.add(nextCallId);
 				callIds.push(nextCallId++);
@@ -341,6 +349,24 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 		}
 		tokenCall[k] = callIds[callIds.length - 1];
 		if (text === "," && tokenCall[k] !== undefined) argSep[k] = true;
+	}
+
+	// Which references are whole list items, grouped by list.
+	const listItems = new Map<number, RefToken[]>();
+	for (let k = 0; k < tokens.length; k++) {
+		const t = tokens[k] as Token;
+		if (t.kind !== "ref") continue;
+		const call = tokenCall[k];
+		if (call === undefined) continue;
+		const prevIdx = previousSignificantIndex(tokens, k);
+		const nextIdx = nextSignificantIndex(tokens, k);
+		const prevText = prevIdx === undefined ? "" : formula.slice(tokens[prevIdx]!.start, tokens[prevIdx]!.end);
+		const nextText = nextIdx === undefined ? "" : formula.slice(tokens[nextIdx]!.start, tokens[nextIdx]!.end);
+		const prevOk = prevIdx !== undefined && (argSep[prevIdx] || prevText === "(");
+		const nextOk = nextIdx !== undefined && ((nextText === "," && argSep[nextIdx]) || (nextText === ")" && tokenCall[nextIdx] === call));
+		if (prevOk && nextOk) {
+			listItems.set(call, [...(listItems.get(call) ?? []), t]);
+		}
 	}
 
 	const out: string[] = [];
@@ -361,7 +387,12 @@ export function rewriteRefs(formula: string, map: RefMapper): string {
 		const nextOk = nextIdx !== undefined && ((nextText === "," && argSep[nextIdx]) || (nextText === ")" && tokenCall[nextIdx] === call));
 		const inArgList = call !== undefined && prevOk && nextOk;
 
-		const result = map(t, { inArgList, inUnion: inArgList && call !== undefined && unionCalls.has(call) });
+		const result = map(t, {
+			inArgList,
+			inUnion: inArgList && call !== undefined && unionCalls.has(call),
+			func: call === undefined ? undefined : callFunc.get(call),
+			siblings: inArgList && call !== undefined ? (listItems.get(call) ?? [t]) : [t],
+		});
 		if (result === undefined) continue;
 		const rep = typeof result === "string" ? { text: result } : result;
 

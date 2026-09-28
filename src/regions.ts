@@ -75,8 +75,10 @@ export interface Region {
 	trailing: Role[];
 	unit: Pattern;
 	roleOfRow: Map<number, Role>;
-	/** For sample group header/footer rows: their label (the text of their constant field cells). */
+	/** For sample group header/footer rows: their label path, e.g. "Sales › Travel". */
 	sampleLabels: Map<number, string>;
+	/** Every sample group: its label row (header, else footer) and its rows. */
+	sampleBlocks: { row: number; first: number; last: number }[];
 }
 
 export interface ScalarTarget {
@@ -319,8 +321,22 @@ function buildRegion(input: RegionInput): Region {
 	if (lo > hi) throw new TemplateStructureError(`${input.key}: no repeatable sample rows found`);
 
 	const seq = parseSeq(info, lo, hi, input.key);
+	const ownLabels = new Map<number, string>();
+	const sampleBlocks: BlockNode[] = [];
+	const unit = toPattern([seq], input, newRole, ownLabels, sampleBlocks);
+	// Label paths: a nested group is identified by its parents' labels too (Sales › Travel, not just Travel).
 	const sampleLabels = new Map<number, string>();
-	const unit = toPattern([seq], input, newRole, sampleLabels);
+	for (const b of sampleBlocks) {
+		const own = b.header ?? b.footer;
+		if (own === undefined) continue;
+		const chain = sampleBlocks
+			.filter((a) => a !== b && a.first <= b.first && b.last <= a.last)
+			.sort((x, y) => y.last - y.first - (x.last - x.first))
+			.map((a) => ownLabels.get((a.header ?? a.footer) as number) ?? "");
+		const path = [...chain, ownLabels.get(own) ?? ""].join(" › ");
+		if (path.replace(/ › /g, "") === "") continue;
+		for (const r of [b.header, b.footer]) if (r !== undefined) sampleLabels.set(r, path);
+	}
 	return {
 		key: input.key,
 		kind: input.kind,
@@ -339,6 +355,7 @@ function buildRegion(input: RegionInput): Region {
 		unit,
 		roleOfRow,
 		sampleLabels,
+		sampleBlocks: sampleBlocks.map((b) => ({ row: (b.header ?? b.footer) as number, first: b.first, last: b.last })),
 	};
 }
 
@@ -379,6 +396,8 @@ function rowInfo(model: SheetModel, sheetName: string, r: number, bodyStart: num
 type SeqNode = { kind: "leaf"; rows: number[] } | { kind: "groups"; blocks: BlockNode[] };
 
 interface BlockNode {
+	first: number;
+	last: number;
 	header: number | undefined;
 	footer: number | undefined;
 	spacers: number[];
@@ -430,7 +449,7 @@ function parseSeq(info: Map<number, RowInfo>, lo: number, hi: number, key: strin
 		const innerLo = header === undefined ? s : s + 1;
 		const innerHi = footer === undefined ? e : e - 1;
 		if (innerLo > innerHi) throw new TemplateStructureError(`${key}: group in rows ${s}-${e} has no detail rows`);
-		nodes.push({ header, footer, spacers: [], child: parseSeq(info, innerLo, innerHi, key) });
+		nodes.push({ first: s, last: e, header, footer, spacers: [], child: parseSeq(info, innerLo, innerHi, key) });
 		cursor = e + 1;
 	}
 	for (let r = cursor; r <= hi; r++) {
@@ -447,6 +466,7 @@ function toPattern(
 	input: RegionInput,
 	newRole: (kind: Role["kind"], rows: number[]) => Role,
 	labels: Map<number, string>,
+	blocksOut: BlockNode[],
 ): Pattern {
 	const first = seqs[0] as SeqNode;
 	if (seqs.some((s) => s.kind !== first.kind)) {
@@ -461,6 +481,7 @@ function toPattern(
 		return { kind: "leaf", role, ...protos, fields: leafFields(input, protos.formulaProto, allRows) };
 	}
 	const blocks = seqs.flatMap((s) => (s.kind === "groups" ? s.blocks : []));
+	blocksOut.push(...blocks);
 	const b0 = blocks[0] as BlockNode;
 	const hasHeader = b0.header !== undefined;
 	const hasFooter = b0.footer !== undefined;
@@ -501,17 +522,17 @@ function toPattern(
 		}
 	}
 	for (const b of blocks) {
-		for (const [r, part] of [[b.header, header], [b.footer, footer]] as const) {
-			if (r === undefined || !part) continue;
-			const label = rowLabel(input, r, part.fields);
-			if (label !== "") labels.set(r, label);
-		}
+		const r = b.header ?? b.footer;
+		const part = b.header !== undefined ? header : footer;
+		if (r === undefined || !part) continue;
+		labels.set(r, rowLabel(input, r, part.fields));
 	}
 	const child = toPattern(
 		blocks.map((b) => b.child),
 		input,
 		newRole,
 		labels,
+		blocksOut,
 	);
 	const fieldNames = new Set([...(header?.fields ?? []), ...(footer?.fields ?? [])].map((f) => f.name));
 	return { kind: "group", header, footer, spacers, child, childKey: fieldNames.has("rows") ? "children" : "rows" };

@@ -132,6 +132,12 @@ describe("property: generated formulas", () => {
 		);
 	});
 
+	it("whole-column references keep their letters when shifted", () => {
+		// Review #1: B:B came back as A:A.
+		expect(shiftFormula("=SUMIF(A:A,D8,$C:$C)", 1, 0)).toBe("=SUMIF(A:A,D9,$C:$C)");
+		expect(shiftFormula("=SUM(B:D)", 0, 1)).toBe("=SUM(C:E)");
+	});
+
 	it("references pushed off the sheet become #REF!", () => {
 		expect(shiftFormula("=A1+B2", -1, 0)).toBe("=#REF!+B1");
 		expect(shiftFormula("=Data!A1", -1, 0)).toBe("=Data!#REF!");
