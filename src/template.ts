@@ -1,6 +1,19 @@
 import { cellName, indexToCol } from "./a1.js";
 import { Package, readWorkbook, type WorkbookInfo } from "./package.js";
-import { discoverRegions, discoverScalars, type FieldType, type Pattern, type Region, type ScalarTarget } from "./regions.js";
+import { discoverRegions, discoverScalars, type FieldType, type Pattern, type Region, type RegionDeclaration, type ScalarTarget } from "./regions.js";
+
+export type { LayoutSpec, RegionDeclaration } from "./regions.js";
+
+export interface LoadOptions {
+	/**
+	 * Regions declared in code instead of in the workbook, keyed by data key:
+	 * `{ DisclosureData: "'Disclosure Table'!A7:M207" }`, optionally with an
+	 * explicit `layout` when the rows' roles can't be inferred. Nothing is
+	 * written into the workbook. A declaration replaces a workbook name of
+	 * the same key.
+	 */
+	regions?: Record<string, string | RegionDeclaration>;
+}
 import { render, type RenderOptions } from "./render.js";
 import { readSharedStrings, readSheet, type SheetModel } from "./sheet.js";
 import { readStyles } from "./styles.js";
@@ -31,6 +44,12 @@ export interface RegionSchema {
 	sampleRange: string;
 	/** Rows inside the region kept as-is (grand totals and the like), e.g. `["A11:C11"]`. */
 	fixedRows: string[];
+	/**
+	 * How the repeating structure was read: from subtotal "formulas", from row
+	 * "styles" (label rows styled apart from the details), from a declared
+	 * "layout", or "flat" (every sample row is a detail row).
+	 */
+	structure: "formulas" | "styles" | "layout" | "flat";
 	/** Column letter → field name. */
 	columns: Record<string, string>;
 	shape: ShapeSchema;
@@ -70,15 +89,18 @@ interface Analysis {
 export class Template<TData extends object = Record<string, unknown>> {
 	private analysis: Analysis | undefined;
 
-	private constructor(private readonly parts: Parts) {}
+	private constructor(
+		private readonly parts: Parts,
+		private readonly options: LoadOptions,
+	) {}
 
-	static async load<TData extends object = Record<string, unknown>>(input: Uint8Array | ArrayBuffer): Promise<Template<TData>> {
-		return Template.loadSync<TData>(input);
+	static async load<TData extends object = Record<string, unknown>>(input: Uint8Array | ArrayBuffer, options: LoadOptions = {}): Promise<Template<TData>> {
+		return Template.loadSync<TData>(input, options);
 	}
 
-	static loadSync<TData extends object = Record<string, unknown>>(input: Uint8Array | ArrayBuffer): Template<TData> {
+	static loadSync<TData extends object = Record<string, unknown>>(input: Uint8Array | ArrayBuffer, options: LoadOptions = {}): Template<TData> {
 		const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-		const tpl = new Template<TData>(readParts(bytes));
+		const tpl = new Template<TData>(readParts(bytes), options);
 		tpl.analyze();
 		return tpl;
 	}
@@ -95,7 +117,7 @@ export class Template<TData extends object = Record<string, unknown>> {
 		const sheets = new Map<string, SheetModel>();
 		for (const s of wb.sheets) if (pkg.has(s.part)) sheets.set(s.part, readSheet(pkg, s.part));
 		const sst = readSharedStrings(pkg, wb.path);
-		const { regions, skipped } = discoverRegions(pkg, wb, sheets, sst, readStyles(pkg, wb.path));
+		const { regions, skipped } = discoverRegions(pkg, wb, sheets, sst, readStyles(pkg, wb.path), this.options.regions);
 		const scalars = discoverScalars(wb, sheets, sst).filter(
 			(s) => !regions.some((r) => r.sheet === s.sheet && s.row >= r.bodyStart && s.row <= r.bodyEnd && s.col >= r.c1 && s.col <= r.c2),
 		);
@@ -125,6 +147,7 @@ export class Template<TData extends object = Record<string, unknown>> {
 					return `${indexToCol(r.c1)}${row}:${indexToCol(r.c2)}${row}`;
 				}),
 				columns: Object.fromEntries([...r.columnNames].map(([c, n]) => [indexToCol(c), n])),
+				structure: r.structure,
 				shape: shapeOf(r.unit),
 			})),
 			scalars,

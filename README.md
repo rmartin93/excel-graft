@@ -54,6 +54,23 @@ would.
 
 Regions you don't pass data for are left exactly as they are.
 
+**No Tables or names in the workbook?** Declare regions in code instead —
+nothing is written into the workbook (don't inject `<definedNames>` by hand:
+in the wrong place Excel deletes them and shows the repair prompt):
+
+```ts
+const tpl = Template.loadSync(bytes, {
+	regions: {
+		DisclosureData: "'Disclosure Table'!A7:M207",
+		CostCenterData: "'2026 CC'!A6:H66",
+	},
+});
+```
+
+Blank rows at the ends of a declared range are spare capacity: they're
+cleared, so the range can be generous. From the CLI:
+`npx excel-graft inspect book.xlsx --region "DisclosureData='Disclosure Table'!A7:M207"`.
+
 **What the sample rows mean** — decided by their formulas:
 
 - A row whose formula totals *other sample rows* (`=SUM(C6:C7)`) is a
@@ -66,6 +83,16 @@ Regions you don't pass data for are left exactly as they are.
 - Every other row is a **detail row**. Formulas in detail rows behave like
   Excel's fill-down: `=C6*$B$2` becomes `=C7*$B$2`, `=D5+C6` stays a running
   balance, `=C6/C$5` keeps pointing at its own group's header.
+- **No subtotal formulas?** The styling is read instead: the most common row
+  style is the detail row, and rows styled differently that fill fewer cells
+  (a yellow pool row with just a label, a blue sub-pool row) are group levels,
+  outermost first. Rows below the last detail that look different (notes, a
+  total line) are kept once. `inspect()` reports which was used in
+  `structure` (`"formulas"`, `"styles"`, `"layout"` or `"flat"`).
+- **Still not what you meant?** Spell the rows out with a layout:
+  `{ range, layout: { levels: [{ header: 7 }, { header: 8 }], detail: 9, fixedRows: [26, 27] } }`
+  (sheet row numbers; levels outermost first, each with a `header` row, a
+  `footer` row, or both).
 - Blank rows between groups are spacers and repeat with each group.
 - Alternating fills (banded rows) are repeated in the same pattern. If the
   first detail row has a different formula (an opening balance), it's used
@@ -179,8 +206,10 @@ The claim is "no repair prompts", so the test suite is built to catch them:
    must be identical to the template's — asserted on every render.
 3. **`verify()`**: structural checks for the known repair triggers (table
    filter ranges, row/cell order, types, limits, overlapping merges,
-   relationships, content types, stale calc chains). It flags the exact bug
-   in the original ExcelJS output.
+   relationships, content types, stale calc chains, element order in
+   `workbook.xml` and worksheets, invalid or cell-like names, formula syntax
+   and argument counts). It flags the exact bug in the original ExcelJS
+   output, and every hand-corrupted file in `corpus/known-bad/`.
 4. **Real Excel**: `npm run harness:rendered` opens every rendered file in
    Excel via COM, recalculates, and checks that every regenerated subtotal
    and total equals the sum of the data that was written, that table row

@@ -25,10 +25,10 @@ function titleFor(dir, file) {
 	return /template\.xlsx$/i.test(file) ? base : `${base} — ${file.replace(/\.xlsx$/i, "")}`;
 }
 
-function register(id, title, bytes, source, file) {
-	const template = Template.loadSync(bytes);
+function register(id, title, bytes, source, file, regions = undefined) {
+	const template = Template.loadSync(bytes, regions ? { regions } : {});
 	const schema = template.inspect();
-	const entry = { id, title, file, bytes, template, schema, source, readme: undefined };
+	const entry = { id, title, file, bytes, template, schema, source, readme: templates.get(id)?.readme, regions };
 	templates.set(id, entry);
 	return entry;
 }
@@ -68,6 +68,7 @@ function summary(t) {
 		readme: t.readme,
 		types: generateTypes(t.schema, `${t.id.replace(/(^|-)(\w)/g, (_m, _d, c) => c.toUpperCase()).replace(/[^A-Za-z0-9]/g, "")}Data`),
 		templateIssues: verify(t.bytes),
+		regions: t.regions ?? {},
 		bytes: t.bytes.length,
 	};
 }
@@ -200,6 +201,18 @@ app.get("/api/excel-check/:id", (req, res) => {
 		const r = Array.isArray(results) ? results[0] : results;
 		res.json({ ok: !err && r?.ok === true, result: r, log: stdout, renderMs: result.ms });
 	});
+});
+
+// Declare regions in code (no workbook edits): body { regions: { Key: "'Sheet'!A7:M207" | { range, layout } } }.
+app.post("/api/regions/:id", (req, res) => {
+	const t = getTemplate(req, res);
+	if (!t) return;
+	try {
+		const regions = req.body?.regions && Object.keys(req.body.regions).length ? req.body.regions : undefined;
+		res.json(summary(register(t.id, t.title, t.bytes, t.source, t.file, regions)));
+	} catch (err) {
+		res.status(400).json({ error: err.message });
+	}
 });
 
 // Try your own workbook: POST the raw .xlsx bytes.

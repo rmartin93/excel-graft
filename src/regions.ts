@@ -79,6 +79,29 @@ export interface Region {
 	sampleLabels: Map<number, string>;
 	/** Every sample group: its label row (header, else footer) and its rows. */
 	sampleBlocks: { row: number; first: number; last: number }[];
+	/** How the repeating structure was found. */
+	structure: "formulas" | "styles" | "layout" | "flat";
+}
+
+/**
+ * An explicit description of a region's rows, for layouts inference can't
+ * read. Row numbers are sheet rows inside the region. Rows of the region
+ * not named here are sample content that gets cleared.
+ */
+export interface LayoutSpec {
+	/** Group levels, outermost first. Each has a header row above its rows, a footer row below, or both. */
+	levels?: { header?: number; footer?: number }[];
+	/** The detail row prototype (two rows = banded). */
+	detail: number | number[];
+	/** Rows kept once, above or below the repeating part (titles, grand totals). */
+	fixedRows?: number[];
+}
+
+/** A region declared in code rather than in the workbook (no workbook edits needed). */
+export interface RegionDeclaration {
+	/** Sheet-qualified range of the sample rows, e.g. `'Disclosure Table'!A7:M207`. */
+	range: string;
+	layout?: LayoutSpec;
 }
 
 export interface ScalarTarget {
@@ -107,8 +130,15 @@ export function discoverRegions(
 	sheets: Map<string, SheetModel>,
 	sst: string[],
 	styles: StyleInfo,
+	declared: Record<string, string | RegionDeclaration> = {},
 ): { regions: Region[]; skipped: { key: string; reason: string }[] } {
 	const regions: Region[] = [];
+	const layouts = new Map<string, LayoutSpec | undefined>();
+	const declaredNames: DefinedName[] = Object.entries(declared).map(([name, d]) => {
+		const spec = typeof d === "string" ? { range: d } : d;
+		layouts.set(name, spec.layout);
+		return { name, localSheetId: undefined, hidden: false, formula: spec.range, el: undefined as unknown as DefinedName["el"] };
+	});
 	const skipped: { key: string; reason: string }[] = [];
 
 	for (const table of wb.tables) {
@@ -157,9 +187,13 @@ export function discoverRegions(
 		}
 	}
 
-	for (const dn of wb.names) {
-		const target = nameTarget(dn, wb);
-		if (!target || target.area.r1 === target.area.r2 && target.area.c1 === target.area.c2) continue;
+	for (const dn of [...wb.names.filter((n) => !layouts.has(n.name)), ...declaredNames]) {
+		const target = nameTarget(dn, wb, layouts.has(dn.name));
+		if (!target) {
+			if (layouts.has(dn.name)) skipped.push({ key: dn.name, reason: `"${dn.formula}" isn't a sheet-qualified range on a worksheet in this workbook` });
+			continue;
+		}
+		if (target.area.r1 === target.area.r2 && target.area.c1 === target.area.c2 && !layouts.has(dn.name)) continue;
 		const { sheet, area } = target;
 		const model = sheets.get(sheet.part);
 		if (!model) continue;
@@ -195,6 +229,7 @@ export function discoverRegions(
 					model,
 					styles,
 					sst,
+					layout: layouts.get(dn.name),
 				}),
 			);
 		} catch (err) {
@@ -206,8 +241,12 @@ export function discoverRegions(
 }
 
 /** Resolves a defined name to a single rectangular area on one sheet, or undefined. */
-export function nameTarget(dn: DefinedName, wb: WorkbookInfo): { sheet: SheetInfo; area: { c1: number; r1: number; c2: number; r2: number } } | undefined {
-	if (dn.hidden || dn.name.startsWith("_xlnm.") || dn.name.startsWith("_")) return undefined;
+export function nameTarget(
+	dn: DefinedName,
+	wb: WorkbookInfo,
+	declared = false,
+): { sheet: SheetInfo; area: { c1: number; r1: number; c2: number; r2: number } } | undefined {
+	if (!declared && (dn.hidden || dn.name.startsWith("_xlnm.") || dn.name.startsWith("_"))) return undefined;
 	const tokens = tokenize(dn.formula);
 	const significant = tokens.filter((t) => t.kind !== "ws");
 	const only = significant[0];
@@ -243,6 +282,7 @@ interface RegionInput {
 	model: SheetModel;
 	styles: StyleInfo;
 	sst: string[];
+	layout?: LayoutSpec | undefined;
 }
 
 function buildRegion(input: RegionInput): Region {
@@ -276,12 +316,34 @@ function buildRegion(input: RegionInput): Region {
 		return role;
 	};
 
-	// Peel fixed summary rows off the ends: a summary footer is an aggregate
-	// covering all content above it with no other aggregates below it.
+	// Blank rows at the edges of the region (pre-formatted capacity, e.g. a
+	// name over A7:M207 with 16 rows of samples) are cleared, not repeated.
 	let lo = bodyStart;
 	let hi = bodyEnd;
+	while (lo < hi && (info.get(lo) as RowInfo).empty) lo++;
+	while (hi > lo && (info.get(hi) as RowInfo).empty) hi--;
+	if ((info.get(lo) as RowInfo).empty) {
+		lo = bodyStart;
+		hi = bodyEnd;
+	}
 	const leading: Role[] = [];
 	const trailing: Role[] = [];
+	let structure: Region["structure"] = [...info.values()].some((x) => x.aggregate) ? "formulas" : "flat";
+
+	let seq: SeqNode;
+	if (input.layout) {
+		const built = seqFromLayout(input, input.layout);
+		for (const r of built.leading) leading.push(newRole("fixed", [r]));
+		for (const r of built.trailing) trailing.push(newRole("fixed", [r]));
+		seq = built.seq;
+		structure = "layout";
+	} else {
+		seq = inferSeq();
+	}
+
+	function inferSeq(): SeqNode {
+	// Peel fixed summary rows off the ends: a summary footer is an aggregate
+	// covering all content above it with no other aggregates below it.
 	const isContentCovered = (row: RowInfo, from: number, to: number): boolean => {
 		for (let r = from; r <= to; r++) {
 			const x = info.get(r) as RowInfo;
@@ -319,8 +381,20 @@ function buildRegion(input: RegionInput): Region {
 		}
 	}
 	if (lo > hi) throw new TemplateStructureError(`${input.key}: no repeatable sample rows found`);
+	const parsed = parseSeq(info, lo, hi, input.key);
+	if (parsed.kind === "leaf" && structure === "flat") {
+		// No formulas define groups; maybe the styling does (a yellow level-1 row, a blue level-2 row, details).
+		const styled = styleGroups(input, info, lo, hi);
+		if (styled) {
+			for (const r of styled.leading) leading.push(newRole("fixed", [r]));
+			for (const r of styled.trailing) trailing.push(newRole("fixed", [r]));
+			structure = "styles";
+			return styled.seq;
+		}
+	}
+	return parsed;
+	}
 
-	const seq = parseSeq(info, lo, hi, input.key);
 	const ownLabels = new Map<number, string>();
 	const sampleBlocks: BlockNode[] = [];
 	const unit = toPattern([seq], input, newRole, ownLabels, sampleBlocks);
@@ -356,7 +430,124 @@ function buildRegion(input: RegionInput): Region {
 		roleOfRow,
 		sampleLabels,
 		sampleBlocks: sampleBlocks.map((b) => ({ row: (b.header ?? b.footer) as number, first: b.first, last: b.last })),
+		structure,
 	};
+}
+
+/** Builds the structure straight from a declared LayoutSpec. */
+function seqFromLayout(input: RegionInput, spec: LayoutSpec): { seq: SeqNode; leading: number[]; trailing: number[] } {
+	const inBody = (r: number, what: string) => {
+		if (!Number.isInteger(r) || r < input.bodyStart || r > input.bodyEnd) {
+			throw new TemplateStructureError(`${input.key}: layout ${what} row ${r} is outside the region (rows ${input.bodyStart}-${input.bodyEnd})`);
+		}
+		return r;
+	};
+	const details = (Array.isArray(spec.detail) ? spec.detail : [spec.detail]).map((r) => inBody(r, "detail"));
+	if (details.length === 0) throw new TemplateStructureError(`${input.key}: layout needs a detail row`);
+	const levels = spec.levels ?? [];
+	const build = (i: number): SeqNode => {
+		if (i === levels.length) return { kind: "leaf", rows: details };
+		const level = levels[i] as { header?: number; footer?: number };
+		if (level.header === undefined && level.footer === undefined) throw new TemplateStructureError(`${input.key}: layout level ${i + 1} needs a header or footer row`);
+		const child = build(i + 1);
+		const childRows = child.kind === "leaf" ? child.rows : child.blocks.flatMap((b) => [b.first, b.last]);
+		const header = level.header === undefined ? undefined : inBody(level.header, "header");
+		const footer = level.footer === undefined ? undefined : inBody(level.footer, "footer");
+		if ((header !== undefined && header >= Math.min(...childRows)) || (footer !== undefined && footer <= Math.max(...childRows))) {
+			throw new TemplateStructureError(`${input.key}: layout level ${i + 1}'s header must be above, and its footer below, the rows it groups`);
+		}
+		return { kind: "groups", blocks: [{ first: header ?? Math.min(...childRows), last: footer ?? Math.max(...childRows), header, footer, spacers: [], child }] };
+	};
+	const seq = build(0);
+	const structural = seq.kind === "leaf" ? seq.rows : seq.blocks.flatMap((b) => [b.first, b.last]);
+	const top = Math.min(...structural);
+	const bottom = Math.max(...structural);
+	const fixed = (spec.fixedRows ?? []).map((r) => inBody(r, "fixed"));
+	if (fixed.some((r) => r >= top && r <= bottom)) throw new TemplateStructureError(`${input.key}: layout fixed rows must be above or below the repeating rows`);
+	return { seq, leading: fixed.filter((r) => r < top).sort((a, b) => a - b), trailing: fixed.filter((r) => r > bottom).sort((a, b) => a - b) };
+}
+
+/**
+ * Groups shown by styling alone: the most common row style is the detail
+ * row; rarer styles whose rows fill fewer cells (labels) are group levels,
+ * outermost first by first appearance. Banded rows don't qualify (they fill
+ * as many cells as the details). Returns undefined when the rows don't fit
+ * that pattern cleanly.
+ */
+function styleGroups(input: RegionInput, info: Map<number, RowInfo>, lo: number, hi: number): { seq: SeqNode; leading: number[]; trailing: number[] } | undefined {
+	const content: number[] = [];
+	for (let r = lo; r <= hi; r++) if (!(info.get(r) as RowInfo).empty) content.push(r);
+	const sig = new Map(content.map((r) => [r, rowSignature(input.model, r).style]));
+	const filled = (r: number) => (input.model.rowMap.get(r)?.cells ?? []).filter((c) => c.hasValue || c.formula !== undefined).length;
+	const kinds = new Map<string, number[]>();
+	for (const r of content) kinds.set(sig.get(r) as string, [...(kinds.get(sig.get(r) as string) ?? []), r]);
+	if (kinds.size < 2) return undefined;
+	const avg = (rows: number[]) => rows.reduce((s, r) => s + filled(r), 0) / rows.length;
+	const [detailSig, detailRows] = [...kinds].sort((a, b) => b[1].length - a[1].length || avg(b[1]) - avg(a[1]))[0] as [string, number[]];
+	if (detailRows.length < 2) return undefined;
+	const firstDetail = detailRows[0] as number;
+	const lastDetail = detailRows[detailRows.length - 1] as number;
+
+	// Kinds that only occur below the last detail row are fixed trailing rows (a total line without a formula).
+	const trailing: number[] = [];
+	const headerKinds: { sig: string; first: number }[] = [];
+	for (const [k, rows] of kinds) {
+		if (k === detailSig) continue;
+		if ((rows[0] as number) > lastDetail) {
+			trailing.push(...rows);
+			continue;
+		}
+		if (avg(rows) >= avg(detailRows)) return undefined; // not a label row: probably banding
+		headerKinds.push({ sig: k, first: rows[0] as number });
+	}
+	headerKinds.sort((a, b) => a.first - b.first);
+	const outerFirst = Math.min(headerKinds[0]?.first ?? firstDetail, firstDetail);
+	const leading = content.filter((r) => r < outerFirst);
+	if (leading.length > 0) return undefined;
+	// Blank rows between the last group and the fixed rows below it are one gap, kept once.
+	let lastBody = trailing.length > 0 ? Math.min(...trailing) - 1 : hi;
+	if (trailing.length > 0) {
+		while (lastBody > outerFirst && (info.get(lastBody) as RowInfo).empty) trailing.push(lastBody--);
+	}
+	if (trailing.some((r) => content.some((c) => c > r && !trailing.includes(c)))) return undefined;
+
+	if (headerKinds.length === 0) {
+		// Flat details followed by rows styled differently (a total line, notes): details repeat, the rest is kept once.
+		if (trailing.length === 0) return undefined;
+		const rows: number[] = [];
+		for (let r = outerFirst; r <= lastBody; r++) rows.push(r);
+		return { seq: { kind: "leaf", rows }, leading, trailing: trailing.sort((a, b) => a - b) };
+	}
+
+	const parse = (level: number, from: number, to: number): SeqNode | undefined => {
+		const rows: number[] = [];
+		for (let r = from; r <= to; r++) rows.push(r);
+		if (level === headerKinds.length) {
+			const bad = rows.some((r) => sig.has(r) && sig.get(r) !== detailSig);
+			if (bad || !rows.some((r) => sig.get(r) === detailSig)) return undefined;
+			return { kind: "leaf", rows: rows.filter((r) => r <= Math.max(...rows.filter((x) => sig.has(x)))) };
+		}
+		const want = (headerKinds[level] as { sig: string }).sig;
+		const heads = rows.filter((r) => sig.get(r) === want);
+		if (heads.length === 0 || rows.some((r) => r < (heads[0] as number) && sig.has(r))) return undefined;
+		const blocks: BlockNode[] = [];
+		for (let i = 0; i < heads.length; i++) {
+			const h = heads[i] as number;
+			const end = i + 1 < heads.length ? (heads[i + 1] as number) - 1 : to;
+			let last = end;
+			while (last > h && !sig.has(last)) last--;
+			const spacers: number[] = [];
+			for (let r = last + 1; r <= end; r++) spacers.push(r);
+			if (last === h) return undefined; // a group with nothing under it
+			const child = parse(level + 1, h + 1, last);
+			if (!child) return undefined;
+			blocks.push({ first: h, last, header: h, footer: undefined, spacers, child });
+		}
+		return { kind: "groups", blocks };
+	};
+	const seq = parse(0, outerFirst, lastBody);
+	if (!seq) return undefined;
+	return { seq, leading, trailing: trailing.sort((a, b) => a - b) };
 }
 
 function hasContent(info: Map<number, RowInfo>, from: number, to: number): boolean {

@@ -151,6 +151,21 @@ export class RegionLayout {
 		return cached;
 	}
 
+	/**
+	 * Where a position inside the body lands, for things anchored to rows
+	 * (pictures, shapes): a row with a role goes to its first output row; a
+	 * cleared row (blank capacity) follows the nearest row above it that has one.
+	 */
+	anchorRow(t: number): number {
+		if (this.region.roleOfRow.has(t)) return this.project([t])[0] ?? this.outStart;
+		for (let r = t - 1; r >= this.region.bodyStart; r--) {
+			if (!this.region.roleOfRow.has(r)) continue;
+			const rows = this.project([r]);
+			return (rows[rows.length - 1] ?? this.outStart) + (t - r);
+		}
+		return this.outStart;
+	}
+
 	/** Rows of the body in [from, to] (template), clipped. */
 	bodyRange(from: number, to: number): number[] {
 		const rows: number[] = [];

@@ -2,7 +2,9 @@ import { type Area, cellName, MAX_COL, MAX_ROW, parseArea, parseSqref } from "./
 import { Package, readWorkbook, REL } from "./package.js";
 import { cellText, readSharedStrings, readSheet, type SheetModel } from "./sheet.js";
 import { MAX_CELL_TEXT } from "./values.js";
-import { findAll, localName, parseXml, textOf } from "./xml.js";
+import { decodeXml, findAll, localName, parseXml, textOf } from "./xml.js";
+import { badName, checkChildOrder, formulaProblems, WORKBOOK_ORDER, WORKSHEET_ORDER } from "./verify-rules.js";
+import { tokenize } from "./formula.js";
 import { readParts } from "./zip.js";
 
 export interface VerifyIssue {
@@ -82,12 +84,32 @@ export function verify(input: Uint8Array): VerifyIssue[] {
 		if (names.has(k)) add(wb.path, `duplicate sheet name "${s.name}"`);
 		names.add(k);
 	}
+	const wbRoot = parseXml(pkg.text(wb.path));
+	const wbEl = wbRoot.children.find((c) => localName(c.name) === "workbook");
+	if (wbEl) for (const p of checkChildOrder(wbEl, WORKBOOK_ORDER, "workbook.xml")) add(wb.path, p);
+	const allSheetNames = new Set(findAll(wbRoot, "sheet").map((s) => decodeXml(s.attrs.name ?? "").toLowerCase()));
+	const sheetCount = findAll(wbRoot, "sheet").length;
+	const refsUnknownSheet = (formula: string): string | undefined => {
+		for (const t of tokenize(formula)) {
+			if (t.kind !== "ref" || t.foreign || t.sheet === undefined) continue;
+			if (!allSheetNames.has(t.sheet.toLowerCase())) return t.sheet;
+		}
+		return undefined;
+	};
 	const dn = new Set<string>();
 	for (const n of wb.names) {
 		const k = `${n.name.toLowerCase()}|${n.localSheetId ?? ""}`;
 		if (dn.has(k)) add(wb.path, `duplicate defined name "${n.name}"`);
 		dn.add(k);
 		if (n.formula.length > 8192) add(wb.path, `defined name "${n.name}" formula is too long`);
+		const bad = badName(n.name, "defined");
+		if (bad) add(wb.path, `defined name "${n.name}" ${bad}`);
+		if (n.localSheetId !== undefined && (!Number.isInteger(n.localSheetId) || n.localSheetId < 0 || n.localSheetId >= sheetCount)) {
+			add(wb.path, `defined name "${n.name}" is scoped to sheet index ${n.localSheetId}, which doesn't exist`);
+		}
+		for (const p of formulaProblems(n.formula)) add(wb.path, `defined name "${n.name}" ${p}`);
+		const missing = refsUnknownSheet(n.formula);
+		if (missing !== undefined) add(wb.path, `defined name "${n.name}" refers to sheet "${missing}", which doesn't exist`);
 	}
 
 	const stylesRel = pkg.rels(wb.path).find((r) => r.type.endsWith("/styles"));
@@ -109,6 +131,17 @@ export function verify(input: Uint8Array): VerifyIssue[] {
 		}
 		models.set(sheet.part, model);
 		checkSheet(model, sst, xfCount, add);
+		for (const p of checkChildOrder(model.worksheet, WORKSHEET_ORDER, "the worksheet")) add(sheet.part, p);
+		for (const row of model.rows) {
+			for (const cell of row.cells) {
+				if (!cell.formulaEl) continue;
+				const f = decodeXml(model.xml.slice(cell.formulaEl.openEnd, cell.formulaEl.closeStart));
+				if (f === "") continue;
+				for (const p of formulaProblems(f)) add(sheet.part, `cell ${cell.el.attrs.r ?? ""} formula ${p}`);
+				const missing = refsUnknownSheet(f);
+				if (missing !== undefined) add(sheet.part, `cell ${cell.el.attrs.r ?? ""} formula refers to sheet "${missing}", which doesn't exist`);
+			}
+		}
 	}
 
 	// Tables.
@@ -125,6 +158,8 @@ export function verify(input: Uint8Array): VerifyIssue[] {
 		const nm = (el.attrs.displayName ?? el.attrs.name ?? "").toLowerCase();
 		if (tableNames.has(nm)) add(table.part, `duplicate table name ${nm}`);
 		tableNames.add(nm);
+		const badTable = badName(el.attrs.displayName ?? el.attrs.name ?? "", "table");
+		if (badTable) add(table.part, `table name "${el.attrs.displayName ?? el.attrs.name}" ${badTable}`);
 		const area = parseArea(el.attrs.ref ?? "");
 		if (!area) {
 			add(table.part, `bad table ref "${el.attrs.ref}"`);

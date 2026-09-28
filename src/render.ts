@@ -723,7 +723,7 @@ function shiftAnchor(xml: string, from: XmlElement, to: XmlElement | undefined, 
 export function mapAnchor(plan: SheetPlan, from: number, to: number | undefined, keepSize: boolean): [number, number | undefined] {
 	const place = (t: number): number => {
 		const lay = plan.layoutFor(t);
-		if (lay) return Math.min(t + (lay.outStart - lay.region.bodyStart), lay.outEnd);
+		if (lay) return lay.anchorRow(t);
 		return plan.mapRow(t);
 	};
 	const f1 = place(from);
