@@ -15,6 +15,8 @@ export interface FieldSchema {
 	type: FieldType;
 	/** Group label fields only: the labels of the template's sample groups. */
 	samples?: string[];
+	/** Group label fields only: fixed text kept around the value, e.g. `"{value} subtotal"`. */
+	labelFormat?: string;
 }
 
 export type ShapeSchema =
@@ -146,7 +148,15 @@ export class Template<TData extends object = Record<string, unknown>> {
 function shapeOf(p: Pattern): ShapeSchema {
 	if (p.kind === "leaf") return { kind: "rows", fields: p.fields.map((f) => ({ name: f.name, type: f.type })) };
 	const byName = new Map(
-		[...(p.header?.fields ?? []), ...(p.footer?.fields ?? [])].map((f) => [f.name, { name: f.name, type: f.type, ...(f.samples?.length ? { samples: f.samples } : {}) }]),
+		[...(p.header?.fields ?? []), ...(p.footer?.fields ?? [])].map((f) => [
+				f.name,
+				{
+					name: f.name,
+					type: f.type,
+					...(f.samples?.length ? { samples: f.samples } : {}),
+					...(f.affix ? { labelFormat: `${f.affix.prefix}{value}${f.affix.suffix}` } : {}),
+				},
+			]),
 	);
 	const fields = [...byName.values()];
 	return { kind: "groups", fields, childKey: p.childKey, child: shapeOf(p.child) };

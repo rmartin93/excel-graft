@@ -125,7 +125,9 @@ try {
 			}
 		}
 		catch {
-			$problems.Add("Excel failed: $($_.Exception.Message)")
+			# With DisplayAlerts off, Excel answers its own repair prompt with "No" and Open throws:
+			# this is how a repair prompt shows up under automation (see corpus/known-bad/README.md).
+			$problems.Add("Excel refused to open it normally - a repair prompt: $($_.Exception.Message)")
 		}
 		finally {
 			if ($null -ne $wb) { $wb.Close($false) | Out-Null }

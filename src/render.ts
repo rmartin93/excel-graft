@@ -2,7 +2,7 @@ import { type Area, cellName, MAX_ROW, parseArea, parseSqref, rowRuns } from "./
 import { rewriteRefs } from "./formula.js";
 import { type OutRow, RenderDataError, type RefOrigin, RegionLayout, SheetPlan, WorkbookMapper } from "./layout.js";
 import { forceRecalc, type Package, REL, type SheetInfo, type WorkbookInfo } from "./package.js";
-import { placeholderPaths, type Region, type ScalarTarget } from "./regions.js";
+import { applyAffix, placeholderPaths, type Region, type ScalarTarget } from "./regions.js";
 import { cellText, type SheetCell, type SheetModel, type SheetRow } from "./sheet.js";
 import { type CellValue, encodeValue, type EncodedCell, isFormulaValue } from "./values.js";
 import { escapeText, findAll, localName, parseXml, rawInner, rawStartTag, setAttrs, Splicer, textOf, type XmlElement } from "./xml.js";
@@ -392,34 +392,39 @@ function renderSheetXml(
 
 	function emitInstanceRow(layout: RegionLayout, r: OutRow): string {
 		const proto = model.rowMap.get(r.proto);
+		const styleRow = r.styleProto === r.proto ? proto : (model.rowMap.get(r.styleProto) ?? proto);
 		const origin: RefOrigin = { kind: "instance", sheet: sheet.name, layout, row: r };
-		const parts: string[] = [proto ? openRow(xml, proto.el, r.out) : `<row r="${r.out}">`];
+		const parts: string[] = [styleRow ? openRow(xml, styleRow.el, r.out) : `<row r="${r.out}">`];
 		const fieldByCol = new Map(r.fields.map((f) => [f.col, f]));
 		const cols = new Set<number>([...(proto?.cells.map((c) => c.col) ?? []), ...fieldByCol.keys()]);
 		for (const col of [...cols].sort((a, b) => a - b)) {
-			const cell = proto?.cells.find((c) => c.col === col);
+			const content = proto?.cells.find((c) => c.col === col);
+			// Attributes (style) come from the style row, unless the content cell carries dynamic-array metadata.
+			const styled = styleRow === proto || content?.el.attrs.cm !== undefined ? content : (styleRow?.cells.find((c) => c.col === col) ?? content);
+			const cell = content;
 			const ref = cellName(col, r.out);
 			const field = fieldByCol.get(col);
 			if (cell?.formula !== undefined && cell.formulaEl && !field) {
 				const f = mapFormula(cell.formula, origin);
 				const arrayRef = arrayRefFor(cell.formulaEl, (a) => ({ ...a, r1: a.r1 + (r.out - r.proto), r2: a.r2 + (r.out - r.proto) }));
-				parts.push(writer.cell(cell, xml, ref, null, writer.formulaInner(cell.formulaEl, xml, f, arrayRef) + extLstOf(xml, cell), true));
+				parts.push(writer.cell(styled, xml, ref, null, writer.formulaInner(cell.formulaEl, xml, f, arrayRef) + extLstOf(xml, cell), true));
 				continue;
 			}
 			if (field) {
-				const value = r.record ? r.record[field.name] : null;
+				let value = r.record ? r.record[field.name] : null;
+				if (field.affix && (typeof value === "string" || typeof value === "number") && value !== "") value = applyAffix(String(value), field.affix);
 				const enc = writer.value(value, () => `${layout.region.key} row ${r.out} column "${field.name}"`);
-				const c = writer.cell(cell, xml, ref, enc.t, enc.inner, isFormulaValue(value));
+				const c = writer.cell(styled, xml, ref, enc.t, enc.inner, isFormulaValue(value));
 				if (c !== "") parts.push(c);
 				continue;
 			}
 			if (cell) {
 				// A constant that isn't data (a label in a total row, or a cell outside the columns): copy it.
-				const tag = setAttrs(rawStartTag(xml, cell.el), { r: ref });
+				const tag = setAttrs(rawStartTag(xml, cell.el), { r: ref, s: styled?.el.attrs.s ?? null });
 				parts.push(cell.el.selfClosing ? tag : `${tag}${rawInner(xml, cell.el)}</${cell.el.name}>`);
 			}
 		}
-		parts.push(`</${proto?.el.name ?? "row"}>`);
+		parts.push(`</${styleRow?.el.name ?? "row"}>`);
 		return parts.join("");
 	}
 

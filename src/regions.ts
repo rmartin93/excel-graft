@@ -27,15 +27,22 @@ export interface FieldDef {
 	type: FieldType;
 	/** For group label fields: the sample groups' values, in order (e.g. Fringe, Overhead, G&A). */
 	samples?: string[];
+	/** Fixed text around a group label that every sample shares ("Engineering subtotal" -> suffix " subtotal"). */
+	affix?: { prefix: string; suffix: string };
 }
 
 export interface LeafPattern {
 	kind: "leaf";
 	role: Role;
 	/** Prototype rows, used cyclically (length 2 for banded rows). */
-	protos: number[];
-	/** A distinct prototype for the first row when it differs (e.g. an opening balance formula). */
-	firstProto: number | undefined;
+	/** Sample row whose formulas and constants every detail row copies. */
+	formulaProto: number;
+	/** A different formula source for the first detail row (e.g. an opening balance `=C5` before `=D5+C6`). */
+	firstFormulaProto: number | undefined;
+	/** Sample rows whose styles detail rows cycle through (two for banded rows). */
+	styleCycle: number[];
+	/** A different style source for the first detail row (e.g. a heavier top border). */
+	firstStyle: number | undefined;
 	fields: FieldDef[];
 }
 
@@ -240,6 +247,24 @@ function buildRegion(input: RegionInput): Region {
 	const { model, bodyStart, bodyEnd } = input;
 	const info = new Map<number, RowInfo>();
 	for (let r = bodyStart; r <= bodyEnd; r++) info.set(r, rowInfo(model, input.sheet.name, r, bodyStart, bodyEnd));
+	// A total over group rows reaches everything those groups reach: SUM(C8,C12) over two
+	// footer subtotals covers both departments, not just rows 8-12.
+	for (let changed = true; changed; ) {
+		changed = false;
+		for (const row of info.values()) {
+			if (!row.aggregate) continue;
+			for (const c of row.covered) {
+				const other = info.get(c) as RowInfo;
+				if (!other.aggregate) continue;
+				const lo = Math.min(row.ext[0], other.ext[0]);
+				const hi = Math.max(row.ext[1], other.ext[1]);
+				if (lo !== row.ext[0] || hi !== row.ext[1]) {
+					row.ext = [lo, hi];
+					changed = true;
+				}
+			}
+		}
+	}
 
 	let roleId = 0;
 	const roleOfRow = new Map<number, Role>();
@@ -432,9 +457,8 @@ function toPattern(
 		const role = newRole("leaf", allRows);
 		const sample = first.rows.filter((r) => !isEmptyRow(input.model, r));
 		const candidates = sample.length > 0 ? sample : first.rows;
-		const { protos, firstProto } = chooseProtos(input.model, candidates);
-		const fieldRow = protos[0] as number;
-		return { kind: "leaf", role, protos, firstProto, fields: leafFields(input, fieldRow, allRows) };
+		const protos = chooseProtos(input.model, candidates);
+		return { kind: "leaf", role, ...protos, fields: leafFields(input, protos.formulaProto, allRows) };
 	}
 	const blocks = seqs.flatMap((s) => (s.kind === "groups" ? s.blocks : []));
 	const b0 = blocks[0] as BlockNode;
@@ -465,17 +489,22 @@ function toPattern(
 			proto: b0.spacers[i] as number,
 		});
 	}
-	for (const b of blocks) {
-		for (const r of [b.header, b.footer]) {
-			if (r === undefined) continue;
-			const label = rowLabel(input, r, (header ?? footer)?.fields ?? []);
-			if (label !== "") labels.set(r, label);
-		}
-	}
 	for (const part of [header, footer]) {
 		for (const f of part?.fields ?? []) {
 			const rows = blocks.map((b) => (part === header ? b.header : b.footer) as number);
-			f.samples = rows.map((r) => cellDisplay(input, r, f.col)).filter((x) => x !== "");
+			const raw = rows.map((r) => cellDisplay(input, r, f.col)).filter((x) => x !== "");
+			if (f.type === "string") {
+				const affix = commonAffix(raw);
+				if (affix) f.affix = affix;
+			}
+			f.samples = raw.map((x) => stripAffix(x, f.affix));
+		}
+	}
+	for (const b of blocks) {
+		for (const [r, part] of [[b.header, header], [b.footer, footer]] as const) {
+			if (r === undefined || !part) continue;
+			const label = rowLabel(input, r, part.fields);
+			if (label !== "") labels.set(r, label);
 		}
 	}
 	const child = toPattern(
@@ -512,23 +541,40 @@ function relativeForm(cell: SheetCell): string {
 	});
 }
 
-function chooseProtos(model: SheetModel, rows: number[]): { protos: number[]; firstProto: number | undefined } {
+/**
+ * Picks prototypes for detail rows. Formulas and styles are chosen
+ * independently, so a sample whose first row opens a running balance AND
+ * whose rows are banded keeps both behaviours.
+ */
+function chooseProtos(
+	model: SheetModel,
+	rows: number[],
+): { formulaProto: number; firstFormulaProto: number | undefined; styleCycle: number[]; firstStyle: number | undefined } {
 	const r0 = rows[0] as number;
-	if (rows.length < 2) return { protos: [r0], firstProto: undefined };
 	const sigs = rows.map((r) => rowSignature(model, r));
-	const s0 = sigs[0]!;
-	const same = (a: { style: string; formulas: string }, b: { style: string; formulas: string }) =>
-		a.style === b.style && a.formulas === b.formulas;
-	if (sigs.every((s) => same(s, s0))) return { protos: [r0], firstProto: undefined };
-	const rest = sigs.slice(1);
-	if (rows.length >= 3 && rest.every((s) => same(s, rest[0]!)) && s0.formulas !== rest[0]!.formulas) {
-		return { protos: [rows[1] as number], firstProto: r0 };
+	const pick = <K extends "style" | "formulas">(key: K) => sigs.map((s) => s[key]);
+
+	// Formulas: all alike, or a distinct first row followed by rows that agree.
+	const f = pick("formulas");
+	let formulaProto = r0;
+	let firstFormulaProto: number | undefined;
+	if (rows.length >= 2 && f.slice(1).every((x) => x === f[1]) && f[0] !== f[1]) {
+		formulaProto = rows[1] as number;
+		firstFormulaProto = r0;
 	}
-	if (rows.length === 2 && s0.formulas !== sigs[1]!.formulas) {
-		return { protos: [rows[1] as number], firstProto: r0 };
+
+	// Styles: all alike, banded (A,B,A,B...), or a distinct first row followed by rows that agree.
+	const s = pick("style");
+	let styleCycle = [r0];
+	let firstStyle: number | undefined;
+	if (rows.length >= 2 && !s.every((x) => x === s[0])) {
+		if (s.every((x, i) => x === s[i % 2])) styleCycle = [r0, rows[1] as number];
+		else if (s.slice(1).every((x) => x === s[1])) {
+			styleCycle = [rows[1] as number];
+			firstStyle = r0;
+		}
 	}
-	if (sigs.every((s, i) => same(s, sigs[i % 2]!))) return { protos: [r0, rows[1] as number], firstProto: undefined };
-	return { protos: [r0], firstProto: undefined };
+	return { formulaProto, firstFormulaProto, styleCycle, firstStyle };
 }
 
 function leafFields(input: RegionInput, protoRow: number, sampleRows: number[]): FieldDef[] {
@@ -567,8 +613,50 @@ function cellDisplay(input: RegionInput, r: number, col: number): string {
 /** A group row's identity: its label fields' text, e.g. "Overhead". */
 export function rowLabel(input: { model: SheetModel; sst: string[] } & Pick<RegionInput, "c1">, r: number, fields: FieldDef[]): string {
 	return fields
-		.map((f) => cellDisplay(input as RegionInput, r, f.col))
+		.map((f) => stripAffix(cellDisplay(input as RegionInput, r, f.col), f.affix))
 		.join(" / ");
+}
+
+/**
+ * Shared leading/trailing text across sample labels, cut at a word boundary:
+ * ["Engineering subtotal", "Finance subtotal"] -> suffix " subtotal".
+ * Needs two or more distinct samples, and every sample must keep a non-empty middle.
+ */
+export function commonAffix(samples: string[]): { prefix: string; suffix: string } | undefined {
+	const distinct = [...new Set(samples)];
+	if (distinct.length < 2) return undefined;
+	let prefix = distinct.reduce((p, s) => {
+		let i = 0;
+		while (i < p.length && i < s.length && p[i] === s[i]) i++;
+		return p.slice(0, i);
+	});
+	let suffix = distinct.reduce((p, s) => {
+		let i = 0;
+		while (i < p.length && i < s.length && p[p.length - 1 - i] === s[s.length - 1 - i]) i++;
+		return p.slice(p.length - i);
+	});
+	// Only whole words: "Total " / " subtotal", not "Tra" from Travel/Training.
+	prefix = prefix.slice(0, prefix.search(/\s\S*$/) + 1 || 0);
+	if (!/\s$/.test(prefix)) prefix = "";
+	const sm = /^\S*\s/.exec(suffix);
+	suffix = sm ? suffix.slice(sm[0].length - 1) : "";
+	if (!/^\s/.test(suffix)) suffix = "";
+	if (prefix === "" && suffix === "") return undefined;
+	if (distinct.some((s) => s.length <= prefix.length + suffix.length)) return undefined;
+	return { prefix, suffix };
+}
+
+export function stripAffix(text: string, affix: { prefix: string; suffix: string } | undefined): string {
+	if (!affix) return text;
+	let t = text;
+	if (affix.prefix && t.startsWith(affix.prefix)) t = t.slice(affix.prefix.length);
+	if (affix.suffix && t.endsWith(affix.suffix)) t = t.slice(0, t.length - affix.suffix.length);
+	return t;
+}
+
+/** The inverse: "Engineering" -> "Engineering subtotal" (unless the value already has the text). */
+export function applyAffix(value: string, affix: { prefix: string; suffix: string }): string {
+	return `${value.startsWith(affix.prefix) ? "" : affix.prefix}${value}${value.endsWith(affix.suffix) ? "" : affix.suffix}`;
 }
 
 /** The type of the first non-empty sample value in this column. */

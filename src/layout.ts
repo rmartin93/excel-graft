@@ -15,7 +15,10 @@ export interface Scope {
 
 export interface OutRow {
 	out: number;
+	/** Template row this row's formulas and constants come from. */
 	proto: number;
+	/** Template row this row's styles come from (differs for banded rows). */
+	styleProto: number;
 	role: Role;
 	/** Values keyed by field name, or undefined for rows that only carry formulas/constants. */
 	record: Record<string, unknown> | undefined;
@@ -51,17 +54,19 @@ export class RegionLayout {
 			this.rows.push(r);
 			return r;
 		};
-		for (const role of region.leading) push({ proto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
+		for (const role of region.leading) push({ proto: role.rows[0] as number, styleProto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
 		const walk = (pattern: Pattern, items: unknown[], scope: Scope, path: string): void => {
 			const list = items.length === 0 ? [undefined] : items;
 			if (pattern.kind === "leaf") {
 				list.forEach((item, i) => {
-					const proto =
-						i === 0 && pattern.firstProto !== undefined
-							? pattern.firstProto
-							: (pattern.protos[(pattern.firstProto !== undefined ? i - 1 : i) % pattern.protos.length] as number);
+					const proto = i === 0 && pattern.firstFormulaProto !== undefined ? pattern.firstFormulaProto : pattern.formulaProto;
+					const styleProto =
+						i === 0 && pattern.firstStyle !== undefined
+							? pattern.firstStyle
+							: (pattern.styleCycle[(pattern.firstStyle !== undefined ? i - 1 : i) % pattern.styleCycle.length] as number);
 					push({
 						proto,
+						styleProto,
 						role: pattern.role,
 						record: asRecord(item, `${path}[${i}]`),
 						fields: pattern.fields,
@@ -75,7 +80,7 @@ export class RegionLayout {
 				const record = asRecord(item, `${path}[${i}]`);
 				const g: Scope = { first: cursor, last: cursor, parent: scope, pattern, headerOut: undefined, footerOut: undefined };
 				if (pattern.header) {
-					g.headerOut = push({ proto: pattern.header.proto, role: pattern.header.role, record, fields: pattern.header.fields, scope: g, blank: item === undefined }).out;
+					g.headerOut = push({ proto: pattern.header.proto, styleProto: pattern.header.proto, role: pattern.header.role, record, fields: pattern.header.fields, scope: g, blank: item === undefined }).out;
 				}
 				const kids = record?.[pattern.childKey];
 				if (kids !== undefined && !Array.isArray(kids)) {
@@ -83,14 +88,14 @@ export class RegionLayout {
 				}
 				walk(pattern.child, (kids as unknown[] | undefined) ?? [], g, `${path}[${i}].${pattern.childKey}`);
 				if (pattern.footer) {
-					g.footerOut = push({ proto: pattern.footer.proto, role: pattern.footer.role, record, fields: pattern.footer.fields, scope: g, blank: item === undefined }).out;
+					g.footerOut = push({ proto: pattern.footer.proto, styleProto: pattern.footer.proto, role: pattern.footer.role, record, fields: pattern.footer.fields, scope: g, blank: item === undefined }).out;
 				}
-				for (const sp of pattern.spacers) push({ proto: sp.proto, role: sp.role, record: undefined, fields: [], scope: g, blank: false });
+				for (const sp of pattern.spacers) push({ proto: sp.proto, styleProto: sp.proto, role: sp.role, record: undefined, fields: [], scope: g, blank: false });
 				g.last = cursor - 1;
 			});
 		};
 		walk(region.unit, data, this.root, region.key);
-		for (const role of region.trailing) push({ proto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
+		for (const role of region.trailing) push({ proto: role.rows[0] as number, styleProto: role.rows[0] as number, role, record: undefined, fields: [], scope: this.root, blank: false });
 		this.root.last = cursor - 1;
 		this.roleAt = new Int32Array(this.rows.length);
 		this.rows.forEach((r, i) => (this.roleAt[i] = r.role.id));

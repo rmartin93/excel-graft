@@ -43,10 +43,50 @@ One subfolder per template, one feature (or one incident) each.
   needs either Phase 4 reference shifting or regenerated formulas.
   Placeholders not added yet.
 
-Still needed (see PROJECT.md phase 0 exit criteria): 20-40 templates
-covering tables-with-totals, conditional formatting, data validation,
-merged cells, images, charts, print areas, frozen panes, multiple sheets,
-and the 1904 date system, plus more real templates from production.
+- Generated templates (2026-09-28), built from scratch in Excel via COM by
+  `tools/corpus-builder/Build-Corpus.ps1`. Each folder holds
+  `template.xlsx` and a `README.md` listing its regions (name, sheet,
+  sample rows, row roles), scalar targets, features and engine-hostile
+  details:
+  - `flat-table-totals/`: invoice Table with a calculated column, totals row,
+    x14 data bars, formula CF, DV list, frozen panes, print area/titles,
+    `{{placeholders}}`, and an A1 ref to the totals row below the table.
+  - `named-range-region/`: defined-name region (not a Table), merged title,
+    alternating fills, A1 total row, chart over the sample rows, a picture
+    above and a shape/note/hyperlink below the region.
+  - `multi-sheet-summary/`: Table `Sales` feeding SUMIFS plus A1 cross-sheet
+    refs, a PivotTable, a slicer, and a hidden lookup sheet driving a DV list.
+  - `incurred-cost/`: DCAA-style submission. Scalar named cells on a
+    protected cover sheet, Table `DirectLabor`, grouped defined-name region
+    `IndirectPools` (pool header rows with subtotals, then a grand total),
+    rates via cross-sheet A1 refs and named formulas, an icon set, a chart,
+    and shared formulas.
+  - `wide-and-styled/`: 31-column Table with hidden columns, row/column
+    outlines, custom heights, wrap, borders, and a sparkline per row.
+  - `date1904/`: 1904 date system.
+  - `stacked-regions/`: two Tables stacked on one sheet, a net-income cell
+    referencing both totals rows, a merged block, and a print area.
+  - `dynamic-arrays/`: FILTER/SORT/UNIQUE/XLOOKUP/LET over a Table, with spills.
+  - `threaded-comments/`: threaded comments and legacy notes, in and around
+    a Table.
+  - `minimal-single-row/`: a Table at A1 with one sample row and nothing else.
+- Built by `tools/corpus-builder/Build-GroupedExtras.ps1`:
+  - `grouped-footers/`: named-range region with a subtotal row *below* each
+    group ("Engineering subtotal"), a blank spacer row after each group,
+    banded detail rows, a running balance whose first row differs, a grand
+    total over the footers, and a cell below the region that uses it.
+  - `nested-groups/`: a Table with Region > Category > line items, subtotal
+    header rows at both levels, a grand total, variance formulas, CF and a chart.
+
+Still needed (see PROJECT.md phase 0 exit criteria): more real templates
+from production.
+
+## known-bad/
+
+Deliberately corrupt fixtures, each with one hand-made corruption, and the
+empirical record of how Excel reacts to them. This is how we know the
+harness's repair detection works. It is not part of the default harness
+run. See `known-bad/README.md`.
 
 ## repair-logs/
 
